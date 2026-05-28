@@ -1,0 +1,14 @@
+# reticulous-auto — AutoInterface transport for reticulous.
+#
+# IPv6 link-local multicast peer discovery + unicast UDP data,
+# wire-compatible with upstream RNS AutoInterface. Active while netIsUp().
+schema_version: 1
+name: reticulous/reticulous-auto
+prefix: rns_auto
+version: 0.1.0
+firmware: esp-idf
+browser: browser
+platforms: [idf]
+requires:
+  - reticulous/reticulous-core
+  - spangap/spangap-net

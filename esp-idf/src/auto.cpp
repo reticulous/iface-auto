@@ -36,7 +36,7 @@
  * See docs/auto.md and docs/component-plan.md §8.1 / §11.
  */
 #include "auto.h"
-#include "diptych.h"
+#include "spangap.h"
 #include "net.h"
 #include "ports.h"
 #include "rnsd.h"
@@ -626,7 +626,7 @@ static void autoTaskMain(void*) {
     }
 }
 
-#if CONFIG_DIPTYCH_LCD
+#if CONFIG_SPANGAP_LCD
 #include "lcd.h"
 /* Settings → Reticulum → Transports → AutoInterface. Mirrors AutoPanel. */
 static void autoSettingsPane(void* arg) {
@@ -651,7 +651,7 @@ void autoInit(void) {
         storageSet("s.auto.version", AUTO_VERSION);
     }
 
-#if CONFIG_DIPTYCH_LCD
+#if CONFIG_SPANGAP_LCD
     lcdRegisterSettings("Reticulum/Transports/AutoInterface", "AutoInterface", autoSettingsPane);
 #endif
 
