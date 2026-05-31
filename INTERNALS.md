@@ -1,4 +1,4 @@
-# reticulous-auto — internals
+# tr-auto — internals
 
 ## Two tasks
 

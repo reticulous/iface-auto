@@ -1,6 +1,6 @@
 # License
 
-This repository, **reticulous-auto** (AutoInterface, i.e.
+This repository, **tr-auto** (AutoInterface, i.e.
 RNS-over-IPv6-multicast-UDP transport for reticulous), is released under the
 **Apache License, Version 2.0**.
 

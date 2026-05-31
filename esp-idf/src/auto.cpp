@@ -531,10 +531,11 @@ static void autoRxTaskMain(void*) {
 /* ─────────────── CLI ─────────────── */
 
 static void cliAuto(const char* args) {
-    if (args && strcmp(args, "help") == 0) {
-        cliPrintf("  %-*s AutoInterface status\n",   CLI_HELP_COL, "auto");
-        cliPrintf("  %-*s enable/disable\n",         CLI_HELP_COL, "auto up|down");
-        cliPrintf("  %-*s list discovered peers\n",  CLI_HELP_COL, "auto peers");
+    if (args && strcmp(args, "help") == 0) { cliPrintf("%-*s AutoInterface status; up/down; peers\n", CLI_HELP_COL, "auto [...]"); return; }
+    if (args && cliWantsHelp(args)) {
+        cliPrintf("%-*s AutoInterface status\n",   CLI_HELP_COL, "auto");
+        cliPrintf("%-*s enable/disable\n",         CLI_HELP_COL, "auto up|down");
+        cliPrintf("%-*s list discovered peers\n",  CLI_HELP_COL, "auto peers");
         return;
     }
     if (args && strcmp(args, "up") == 0)   { storageSet("s.auto.enable", 1); cliPrintf("enabled\n");  return; }
@@ -543,7 +544,7 @@ static void cliAuto(const char* args) {
         if (s_peerCount == 0) { cliPrintf("(no peers)\n"); return; }
         TickType_t now = xTaskGetTickCount();
         for (int i = 0; i < s_peerCount; i++)
-            cliPrintf("  %-40s last heard %ums ago\n", s_peers[i].str,
+            cliPrintf("%-40s last heard %ums ago\n", s_peers[i].str,
                       (unsigned)((now - s_peers[i].last_heard) * portTICK_PERIOD_MS));
         return;
     }
