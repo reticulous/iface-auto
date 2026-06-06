@@ -1,4 +1,4 @@
-# tr-auto — internals
+# iface-auto — internals
 
 ## Two tasks
 

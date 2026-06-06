@@ -1,5 +1,5 @@
-description: "tr-auto: AutoInterface (RNS-over-IPv6-multicast-UDP) transport for reticulous."
-url: https://github.com/reticulous/tr-auto
+description: "iface-auto: AutoInterface (RNS-over-IPv6-multicast-UDP) transport for reticulous."
+url: https://github.com/reticulous/iface-auto
 version: "0.1.0"
 license: "Apache-2.0"
 targets:

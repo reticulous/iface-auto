@@ -1,8 +1,8 @@
-# tr-auto
+# iface-auto
 
 ## What is this?
 
-**tr-auto** is the AutoInterface transport for
+**iface-auto** is the AutoInterface transport for
 [rns](../rns): zero-config RNS over the LAN
 using IPv6 link-local multicast for peer discovery and unicast UDP for
 data. Wire-compatible with upstream RNS's AutoInterface, so spangap
@@ -12,7 +12,7 @@ same LAN.
 ## What this straddle owns
 
 ```
-tr-auto/
+iface-auto/
 ├── esp-idf/
 │   ├── include/auto.h
 │   └── src/auto.cpp     auto + auto-rx helper

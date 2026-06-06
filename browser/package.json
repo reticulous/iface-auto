@@ -1,5 +1,5 @@
 {
-  "name": "tr-auto",
+  "name": "iface-auto",
   "version": "0.1.0",
   "type": "module",
   "description": "Browser-side AutoInterface transport settings panel for reticulous.",

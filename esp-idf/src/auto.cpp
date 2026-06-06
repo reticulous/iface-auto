@@ -627,23 +627,6 @@ static void autoTaskMain(void*) {
     }
 }
 
-#if CONFIG_SPANGAP_LCD
-#include "lcd.h"
-/* Settings → Reticulum → Transports → AutoInterface. Mirrors AutoPanel. */
-static void autoSettingsPane(void* arg) {
-    lv_obj_t* p = static_cast<lv_obj_t*>(arg);
-    lcdSettingSection (p, "AutoInterface");
-    lcdSettingSwitch  (p, "Enable", "s.auto.enable");
-    lcdSettingText    (p, "Group",  "s.auto.group");
-    lcdSettingDropdown(p, "Mode", "s.auto.mode",
-                       "gateway,full,access_point,roaming,boundary");
-    lcdSettingSection (p, "Status");
-    lcdSettingValue   (p, "State", "auto.state");
-    lcdSettingValue   (p, "Peers", "auto.peers");
-    lcdSettingValue   (p, "Address", "auto.addr");
-}
-#endif
-
 void autoInit(void) {
     if (storageGetInt("s.auto.version", 0) < AUTO_VERSION) {
         storageDefault("s.auto.enable", 0);
@@ -652,10 +635,8 @@ void autoInit(void) {
         storageSet("s.auto.version", AUTO_VERSION);
     }
 
-#if CONFIG_SPANGAP_LCD
-    lcdRegisterSettings("Reticulum/Transports/AutoInterface", "AutoInterface", autoSettingsPane);
-#endif
-
+    /* The on-device AutoInterface settings pane registers via autoLcdRegister(),
+     * a when:-gated init: hook (spangap/spangap-lcd) — see straddle.yaml. */
     cliRegisterCmd("auto", cliAuto);
 
     /* Core 0 alongside net + rnsd, prio 2, PSRAM stack. */
