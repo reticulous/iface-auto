@@ -19,6 +19,24 @@
     </div>
     <SettingSelect label="Interface mode" k="s.auto.mode" :options="modeOptions" />
 
+    <q-expansion-item dense dense-toggle label="Advanced" header-class="text-caption" class="q-mt-xs">
+      <div class="q-pl-sm q-gutter-y-sm q-pt-sm">
+        <div class="text-caption" style="opacity:0.6">
+          IFAC (Interface Access Codes): a network name + passphrase that must
+          match every peer on this interface, or traffic is dropped. Leave
+          both blank for an open interface.
+        </div>
+        <SettingText label="IFAC network" k="s.auto.ifac_netname" />
+        <div class="row items-center no-wrap">
+          <div class="col-4 text-caption">IFAC passphrase</div>
+          <q-input class="col" :model-value="ifacKey" type="password" dense outlined
+            debounce="600" placeholder="(write-only — set to change)"
+            autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+            @update:model-value="setIfacKey" />
+        </div>
+      </div>
+    </q-expansion-item>
+
     <q-separator dark class="q-mt-md" />
 
     <div class="row items-center no-wrap">
@@ -51,10 +69,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDeviceStore } from 'spangap-browser/stores/device'
 
 const device = useDeviceStore()
+
+// IFAC passphrase lives in secrets.* — never synced to the browser, so this
+// field is write-only.
+const ifacKey = ref('')
+function setIfacKey(val: string | number | null) {
+  ifacKey.value = String(val ?? '')
+  device.set('secrets.auto.ifac_netkey', ifacKey.value)
+  device.save()
+}
 
 const state     = computed(() => String(device.get('auto.state') ?? ''))
 const addr      = computed(() => String(device.get('auto.addr') ?? ''))

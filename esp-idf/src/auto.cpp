@@ -95,6 +95,9 @@ static bool          s_running = false;   /* sockets up + registered */
 
 static std::string   s_group   = "reticulum";
 static uint8_t       s_mode     = RNS_IFACE_MODE_GATEWAY;
+static char          s_ifacNetname[32] = "";  /* IFAC network_name (s.) */
+static char          s_ifacNetkey[64]  = "";  /* IFAC passphrase (secrets.) */
+static uint8_t       s_ifacSize = 0;          /* IFAC access-code length */
 
 static int           s_ifIndex = 0;
 static struct in6_addr s_ourAddr   = {};
@@ -208,6 +211,9 @@ static bool registerWithRnsd(void) {
     reg.in = reg.out = 1;
     reg.fwd = (s_mode == RNS_IFACE_MODE_GATEWAY || s_mode == RNS_IFACE_MODE_FULL) ? 1 : 0;
     reg.rpt = 0;
+    reg.ifac_size = s_ifacSize;
+    safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
+    safeStrncpy(reg.ifac_netkey,  s_ifacNetkey,  sizeof(reg.ifac_netkey));
     s_rnsdHandle = itsConnect("rnsd", RNSD_PORT_TRANSPORT, &reg, sizeof(reg),
                               pdMS_TO_TICKS(500), 1, onRnsdRecv, onRnsdDisconnect);
     if (s_rnsdHandle < 0) { warn("rnsd register failed"); return false; }
@@ -463,10 +469,19 @@ static void applyConfig(void) {
     else if (strcmp(mode, "boundary")     == 0) m = RNS_IFACE_MODE_BOUNDARY;
     else                                        m = RNS_IFACE_MODE_GATEWAY;
 
+    char ifn[sizeof(s_ifacNetname)] = ""; storageGetStr("s.auto.ifac_netname", ifn, sizeof(ifn), "");
+    char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("secrets.auto.ifac_netkey", ifk, sizeof(ifk), "");
+    uint8_t ifs = (uint8_t)storageGetInt("s.auto.ifac_size", 0);
+
     bool groupChanged = s_group != group;
-    bool changed = groupChanged || (m != s_mode);
+    bool changed = groupChanged || (m != s_mode)
+                   || strcmp(ifn, s_ifacNetname) != 0 || strcmp(ifk, s_ifacNetkey) != 0
+                   || ifs != s_ifacSize;
     s_group = group;
     s_mode  = m;
+    safeStrncpy(s_ifacNetname, ifn, sizeof(s_ifacNetname));
+    safeStrncpy(s_ifacNetkey,  ifk, sizeof(s_ifacNetkey));
+    s_ifacSize = ifs;
     if (groupChanged) { computeGroupAddr(); storageSet("auto.group_addr", s_groupAddrStr); }
 
     if (!s_enabled) { teardown(); publishState("down"); return; }
@@ -597,6 +612,7 @@ static void autoTaskMain(void*) {
     netRegister(NET_EV_UP,   onNetUp);
     netRegister(NET_EV_DOWN, onNetDown);
     storageSubscribeChanges("s.auto", onCfgChange);
+    storageSubscribeChanges("secrets.auto", onCfgChange);  /* IFAC passphrase */
 
     /* AutoInterface needs an IP network up; ask net to bring WiFi up. */
     netUp();
