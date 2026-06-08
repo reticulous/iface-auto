@@ -619,6 +619,10 @@ static void autoTaskMain(void*) {
 
     spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 2, 0, STACK_PSRAM);
 
+    /* Wait for a valid clock before bringing the interface up and announcing —
+     * netUp() above lets SNTP sync first. Bounded; proceeds on timeout. */
+    waitForTime(0);
+
     for (;;) {
         if (s_configDirty) { s_configDirty = false; applyConfig(); }
 
