@@ -27,5 +27,5 @@ static void autoSettingsPane(void* arg) {
  * (spangap/spangap-lcd). Plain C++ linkage to match the generated dispatcher's
  * forward decl. */
 void autoLcdRegister(void) {
-    lcdRegisterSettings("Reticulum/Transports/AutoInterface", "AutoInterface", autoSettingsPane);
+    lcdRegisterSettings("Mesh Network/RNS Interfaces/AutoInterface", "AutoInterface", autoSettingsPane);
 }
