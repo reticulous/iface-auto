@@ -601,6 +601,15 @@ static TickType_t nextDeadline(void) {
 static void autoTaskMain(void*) {
     info("[%s] task up", TAG);
 
+    /* Boot barrier: stay quiet until rns.ready — clock valid, network up (if
+     * configured), and the minimum settle floor elapsed. Bounded fallback so a
+     * wedged rnsd can't pin us. No rnsd, no
+     * point — so bail (don't start) if rns.ready never comes. */
+    if (!waitForFlag("rns.ready", 120)) {
+        err("[%s] rns.ready never set — not starting", TAG);
+        killSelf();
+    }
+
     itsClientInit(2);
     s_rxQueue = xQueueCreateWithCaps(RX_QDEPTH, sizeof(auto_rx_t), MALLOC_CAP_SPIRAM);
 
