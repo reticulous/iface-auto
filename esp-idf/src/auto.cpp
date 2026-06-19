@@ -230,7 +230,7 @@ static void onRnsdDisconnect(int /*ref*/) {
 
 static int makeSock(uint16_t port, bool joinGroup) {
     int fd = socket(AF_INET6, SOCK_DGRAM, 0);
-    if (fd < 0) { err("socket: errno %d", errno); return -1; }
+    if (fd < 0) { err("socket: %s (errno %d)", strerror(errno), errno); return -1; }
 
     int on = 1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
@@ -240,7 +240,7 @@ static int makeSock(uint16_t port, bool joinGroup) {
     sa.sin6_family = AF_INET6;
     sa.sin6_port   = htons(port);
     if (bind(fd, (struct sockaddr*)&sa, sizeof(sa)) < 0) {
-        err("bind :%u: errno %d", (unsigned)port, errno);
+        err("bind :%u: %s (errno %d)", (unsigned)port, strerror(errno), errno);
         lwip_close(fd);
         return -1;
     }
@@ -250,7 +250,7 @@ static int makeSock(uint16_t port, bool joinGroup) {
         std::memcpy(&mreq.ipv6mr_multiaddr, &s_groupAddr, sizeof(s_groupAddr));
         mreq.ipv6mr_interface = (unsigned)s_ifIndex;
         if (setsockopt(fd, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &mreq, sizeof(mreq)) < 0) {
-            err("join %s: errno %d", s_groupAddrStr, errno);
+            err("join %s: %s (errno %d)", s_groupAddrStr, strerror(errno), errno);
             lwip_close(fd);
             return -1;
         }
