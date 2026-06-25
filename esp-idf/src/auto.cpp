@@ -40,6 +40,7 @@
 #include "net.h"
 #include "ports.h"
 #include "rnsd.h"
+#include "mem.h"
 
 #include "esp_netif.h"
 #include "esp_heap_caps.h"
@@ -126,7 +127,7 @@ typedef struct {
     TickType_t      last_heard;
     TickType_t      last_reverse;
 } peer_t;
-static peer_t s_peers[MAX_PEERS];
+PSRAM_BSS static peer_t s_peers[MAX_PEERS];
 static int    s_peerCount = 0;
 
 enum rx_kind_t : uint8_t { RX_DISC = 0, RX_DATA = 1 };
@@ -408,7 +409,7 @@ static void peerJob(void) {
 
 static void drainRx(void) {
     if (!s_rxQueue) return;
-    static auto_rx_t slot;   /* one task; static avoids 1.2 KB of stack churn */
+    PSRAM_BSS static auto_rx_t slot;   /* one task; static avoids 1.2 KB of stack churn */
     while (xQueueReceive(s_rxQueue, &slot, 0) == pdTRUE) {
         if (!s_running) continue;
         if (slot.kind == RX_DISC) {
@@ -431,7 +432,7 @@ static void drainRx(void) {
 
 static void drainOutbound(void) {
     if (!s_running || s_rnsdHandle < 0) return;
-    static uint8_t pkt[RNS_MTU + 16];
+    PSRAM_BSS static uint8_t pkt[RNS_MTU + 16];
     while (itsBytesAvailable(s_rnsdHandle) > 0) {
         size_t n = itsRecv(s_rnsdHandle, pkt, sizeof(pkt), 0);
         if (n == 0) break;
@@ -509,7 +510,7 @@ static void onNetDown(const char*) {
 /* ─────────────── rx helper task ─────────────── */
 
 static void rxRecvOne(int fd, uint8_t kind) {
-    static auto_rx_t slot;   /* only the rx task touches it; keeps its stack small */
+    PSRAM_BSS static auto_rx_t slot;   /* only the rx task touches it; keeps its stack small */
     struct sockaddr_in6 sa;
     socklen_t sl = sizeof(sa);
     int n = recvfrom(fd, slot.data, sizeof(slot.data), 0, (struct sockaddr*)&sa, &sl);
