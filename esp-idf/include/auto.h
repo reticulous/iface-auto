@@ -1,7 +1,7 @@
 /**
- * auto — AutoInterface transport task.
+ * auto — AutoInterface interface task.
  *
- * Reticulum's zero-configuration LAN transport: IPv6 link-local
+ * Reticulum's zero-configuration LAN interface: IPv6 link-local
  * multicast peer discovery + unicast UDP data, wire-compatible with
  * upstream RNS `AutoInterface`. Every reachable RNS node on the same
  * link is found automatically — no host/port config.

@@ -1,5 +1,5 @@
 /**
- * auto — AutoInterface transport task.
+ * auto — AutoInterface interface task.
  *
  * RNS over IPv6 link-local multicast discovery + unicast UDP data,
  * wire-compatible with upstream Reticulum AutoInterface
@@ -62,7 +62,6 @@
 
 static const char* TAG = "auto";
 
-#define AUTO_VERSION            1
 #define RNS_MTU                 500     /* registered iface MTU (mR base MTU) */
 
 /* Upstream AutoInterface well-known ports + cadences. */
@@ -204,7 +203,7 @@ static void deregisterFromRnsd(void) {
 
 static bool registerWithRnsd(void) {
     deregisterFromRnsd();
-    rnsd_transport_t reg = {};
+    rnsd_iface_t reg = {};
     safeStrncpy(reg.name, "auto", sizeof(reg.name));
     reg.mtu     = RNS_MTU;
     reg.bitrate = 10 * 1000 * 1000;   /* AutoInterface BITRATE_GUESS */
@@ -215,7 +214,7 @@ static bool registerWithRnsd(void) {
     reg.ifac_size = s_ifacSize;
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
     safeStrncpy(reg.ifac_netkey,  s_ifacNetkey,  sizeof(reg.ifac_netkey));
-    s_rnsdHandle = itsConnect("rnsd", RNSD_PORT_TRANSPORT, &reg, sizeof(reg),
+    s_rnsdHandle = itsConnect("rnsd", RNSD_PORT_IFACE, &reg, sizeof(reg),
                               pdMS_TO_TICKS(500), 1, onRnsdRecv, onRnsdDisconnect);
     if (s_rnsdHandle < 0) { warn("rnsd register failed"); return false; }
     info("registered as iface auto (group=%s addr=%s)",
@@ -658,15 +657,10 @@ static void autoTaskMain(void*) {
 }
 
 void autoInit(void) {
-    if (storageGetInt("s.auto.version", 0) < AUTO_VERSION) {
-        storageDefault("s.auto.enable", 0);
-        storageDefault("s.auto.group", "reticulum");
-        storageDefault("s.auto.mode", "gateway");
-        storageSet("s.auto.version", AUTO_VERSION);
-    }
 
-    /* The on-device AutoInterface settings pane registers via autoLcdRegister(),
-     * a when:-gated init: hook (spangap/spangap-lcd) — see straddle.yaml. */
+    /* The settings pane + storage defaults are generated from the settings:
+     * block in straddle.yaml (LCD pane gated on spangap-lcd; web kept by
+     * AutoPanel.vue via web: false). */
     cliRegisterCmd("auto", cliAuto);
 
     /* Core 0 alongside net + rnsd, prio 2, PSRAM stack. */
