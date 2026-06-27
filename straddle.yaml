@@ -17,11 +17,37 @@ requires:
 # rnsd ahead of it in dependency-topo order, so its port surface is up first.
 init:
   - call: autoInit
-  - call: autoLcdRegister
-    when: spangap/spangap-lcd
 
 # Browser-side UI registration (parallel to init: above) — auto-wired into
 # the buildable SPA via straddles.gen.ts; no web-interface edit needed.
 browser_register:
   - call: registerAuto
     module: modules/auto
+
+# Declarative settings: the LCD pane + storage defaults are generated from this
+# block. web: false — the rich AutoPanel.vue (IFAC secret field, live status
+# badges) keeps owning the web leaf; only the LCD + defaults are generated.
+settings:
+  - menu:
+      - { id: mesh, label: "Mesh Network", placement: 3 }
+      - { id: interfaces, label: "RNS Interfaces", placement: 2 }
+      - { id: auto, label: "AutoInterface" }
+    web: false
+    rows:
+      - section: "AutoInterface"
+      - switch: { label: "Enable", key: "s.auto.enable", default: 0 }
+      - text:   { label: "Group", key: "s.auto.group", default: "reticulum" }
+      - dropdown:
+          label: "Mode"
+          key: "s.auto.mode"
+          default: "gateway"
+          options:
+            - { v: "gateway",      l: "Gateway" }
+            - { v: "full",         l: "Full" }
+            - { v: "access_point", l: "Access point" }
+            - { v: "roaming",      l: "Roaming" }
+            - { v: "boundary",     l: "Boundary" }
+      - section: "Status"
+      - value: { label: "State", key: "auto.state" }
+      - value: { label: "Peers", key: "auto.peers" }
+      - value: { label: "Address", key: "auto.addr" }
