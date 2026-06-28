@@ -32,8 +32,6 @@
  *
  * WiFi ownership stays with net (gate on netIsUp()); the link-local
  * IPv6 address is brought up on the active netif via esp_netif.
- *
- * See docs/auto.md and docs/component-plan.md §8.1 / §11.
  */
 #include "auto.h"
 #include "spangap.h"

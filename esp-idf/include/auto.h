@@ -15,8 +15,6 @@
  *
  * Self-registers with rnsd as the `auto` interface. Requires WiFi to be
  * up (net owns the radio); active while netIsUp().
- *
- * See docs/auto.md and docs/component-plan.md §8.1 / §11.
  */
 #pragma once
 

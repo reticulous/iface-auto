@@ -1,4 +1,4 @@
-# iface-auto — AutoInterface transport for reticulous.
+# iface-auto — AutoInterface for reticulous.
 #
 # IPv6 link-local multicast peer discovery + unicast UDP data,
 # wire-compatible with upstream RNS AutoInterface. Active while netIsUp().
