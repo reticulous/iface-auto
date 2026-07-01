@@ -181,6 +181,8 @@ static void publishState(const char* state) {
 }
 
 static void publishStats(void) {
+    /* One bracket → one storage op instead of 7 sync round-trips per second. */
+    storageBegin();
     storageSet("auto.peers", s_peerCount);
     storageSet("auto.stats.tx_bytes",   (int)(s_txBytes   & 0x7fffffff));
     storageSet("auto.stats.rx_bytes",   (int)(s_rxBytes   & 0x7fffffff));
@@ -188,6 +190,7 @@ static void publishStats(void) {
     storageSet("auto.stats.rx_packets", (int)(s_rxPackets & 0x7fffffff));
     storageSet("auto.stats.tx_fail",    (int)(s_txFail    & 0x7fffffff));
     storageSet("auto.stats.rx_drop",    (int)(s_rxDrop    & 0x7fffffff));
+    storageEnd();
 }
 
 /* ─────────────── rnsd registration ─────────────── */
