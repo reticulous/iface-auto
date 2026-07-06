@@ -150,3 +150,15 @@ settings take effect; a group change recomputes the multicast address.
   close a socket from the rx task.
 - **rnsd must be up first.** `requires: reticulous/rns` topo-orders rnsd ahead of
   this interface so `RNSD_PORT_IFACE` exists before registration.
+- **`s_rxQueue` still lives in PSRAM — a known, deferred hazard.** It is built as
+  `xQueueCreateWithCaps(RX_QDEPTH /*16*/, sizeof(auto_rx_t) /*~1.2 KB*/,
+  MALLOC_CAP_SPIRAM)` (~19 KB in PSRAM). A FreeRTOS queue touched inside a
+  critical section is exactly the class of object that must be in internal RAM:
+  the identical `S32C1I`-spinlock-on-PSRAM corruption was observed and fixed for
+  the ITS inbox queue (see the PSRAM-placement discussion in spangap-core's
+  `docs/memory-internals.md`). The static control/storage split ITS uses for its
+  *stream buffers* does not apply here — a queue copies items **under** the lock,
+  so the whole thing has to be internal. Fixing this therefore costs ~19 KB of
+  scarce internal DRAM, or a redesign to queue small pointers with PSRAM-resident
+  payloads (as ITS does for its inbox). The cost decision is pending; until then
+  `auto-rx` → `auto` datagram delivery rides the same latent bug that bit ITS.
