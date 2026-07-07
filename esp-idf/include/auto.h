@@ -18,4 +18,12 @@
  */
 #pragma once
 
-void autoInit(void);
+#include "service.h"
+
+/** Boot-registered AutoInterface service: onInit() registers the `auto` CLI
+ *  verb and spawns the interface task (self-registers with rnsd; active while
+ *  netIsUp()). */
+class AutoService : public Service {
+public:
+    void onInit() override;
+};

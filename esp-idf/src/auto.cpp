@@ -657,7 +657,7 @@ static void autoTaskMain(void*) {
     }
 }
 
-void autoInit(void) {
+void AutoService::onInit() {
 
     /* The settings pane + storage defaults are generated from the settings:
      * block in straddle.yaml (LCD pane gated on spangap-lcd; web kept by
