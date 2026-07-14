@@ -176,8 +176,10 @@ static peer_t* findPeer(const struct in6_addr& a) {
 /* ─────────────── publish ─────────────── */
 
 static void publishState(const char* state) {
+    storageBegin();
     storageSet("auto.state", state);
     storageSet("auto.up", s_running ? 1 : 0);
+    storageEnd();
 }
 
 static void publishStats(void) {
@@ -341,8 +343,10 @@ static void tryBringUp(void) {
     s_lastAnnounce = 0;   /* announce immediately */
     s_lastPeerJob  = xTaskGetTickCount();
     publishState("up");
+    storageBegin();
     storageSet("auto.addr", s_ourAddrStr);
     storageSet("auto.group_addr", s_groupAddrStr);
+    storageEnd();
     info("up: addr=%s group=%s (%s)", s_ourAddrStr, s_group.c_str(), s_groupAddrStr);
 
     if (!registerWithRnsd()) publishState("rnsd_unavailable");
