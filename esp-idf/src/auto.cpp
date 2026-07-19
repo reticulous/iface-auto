@@ -96,6 +96,7 @@ static uint8_t       s_mode     = RNS_IFACE_MODE_GATEWAY;
 static char          s_ifacNetname[32] = "";  /* IFAC network_name (s.) */
 static char          s_ifacNetkey[64]  = "";  /* IFAC passphrase (secrets.) */
 static uint8_t       s_ifacSize = 0;          /* IFAC access-code length */
+static uint8_t       s_announceCap = RNS_IFACE_ANNOUNCE_CAP_DEFAULT;  /* % bw cap for announces */
 
 static int           s_ifIndex = 0;
 static struct in6_addr s_ourAddr   = {};
@@ -215,6 +216,9 @@ static bool registerWithRnsd(void) {
     reg.fwd = (s_mode == RNS_IFACE_MODE_GATEWAY || s_mode == RNS_IFACE_MODE_FULL) ? 1 : 0;
     reg.rpt = 0;
     reg.ifac_size = s_ifacSize;
+    reg.announce_cap = s_announceCap;
+    reg.point_to_point = 1;   /* switched/multicast LAN: every peer hears every
+                                 other, so no hidden-node problem */
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
     safeStrncpy(reg.ifac_netkey,  s_ifacNetkey,  sizeof(reg.ifac_netkey));
     s_rnsdHandle = itsConnect("rnsd", RNSD_PORT_IFACE, &reg, sizeof(reg),
@@ -477,16 +481,18 @@ static void applyConfig(void) {
     char ifn[sizeof(s_ifacNetname)] = ""; storageGetStr("s.auto.ifac_netname", ifn, sizeof(ifn), "");
     char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("secrets.auto.ifac_netkey", ifk, sizeof(ifk), "");
     uint8_t ifs = (uint8_t)storageGetInt("s.auto.ifac_size", 0);
+    uint8_t acap = (uint8_t)storageGetInt("s.auto.announce_cap", RNS_IFACE_ANNOUNCE_CAP_DEFAULT);
 
     bool groupChanged = s_group != group;
     bool changed = groupChanged || (m != s_mode)
                    || strcmp(ifn, s_ifacNetname) != 0 || strcmp(ifk, s_ifacNetkey) != 0
-                   || ifs != s_ifacSize;
+                   || ifs != s_ifacSize || acap != s_announceCap;
     s_group = group;
     s_mode  = m;
     safeStrncpy(s_ifacNetname, ifn, sizeof(s_ifacNetname));
     safeStrncpy(s_ifacNetkey,  ifk, sizeof(s_ifacNetkey));
     s_ifacSize = ifs;
+    s_announceCap = acap;
     if (groupChanged) { computeGroupAddr(); storageSet("auto.group_addr", s_groupAddrStr); }
 
     if (!s_enabled) { teardown(); publishState("down"); return; }
