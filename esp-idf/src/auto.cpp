@@ -496,6 +496,11 @@ static void applyConfig(void) {
     if (groupChanged) { computeGroupAddr(); storageSet("auto.group_addr", s_groupAddrStr); }
 
     if (!s_enabled) { teardown(); publishState("down"); return; }
+    /* Enabled but no IP yet — ask net to bring WiFi up. Gated here (not at boot)
+     * so only an enabled interface powers the radio; netUp itself no-ops when
+     * s.net.wifi.enable=0. onNetUp() re-runs applyConfig once it's available;
+     * tryBringUp() no-ops to waiting_wifi until then. */
+    if (!s_netUp) netUp();
     if (s_running && changed) teardown();   /* re-apply group/mode */
     if (!s_running) tryBringUp();
 }
@@ -634,14 +639,17 @@ static void autoTaskMain(void*) {
     storageSubscribeChanges("s.auto", onCfgChange);
     storageSubscribeChanges("secrets.auto", onCfgChange);  /* IFAC passphrase */
 
-    /* AutoInterface needs an IP network up; ask net to bring WiFi up. */
-    netUp();
-
     spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 2, 0, STACK_PSRAM);
 
+    /* Reconcile against s.auto.enable up front: a disabled interface must not
+     * power the WiFi radio. applyConfig() asks net to bring WiFi up only when
+     * enabled — every bring-up request routes through the enable gate. */
+    applyConfig();
+
     /* Wait for a valid clock before bringing the interface up and announcing —
-     * netUp() above lets SNTP sync first. Bounded; proceeds on timeout. */
-    waitForTime(0);
+     * only when actually coming up (netUp() in applyConfig lets SNTP sync
+     * first). Bounded; proceeds on timeout. */
+    if (s_enabled) waitForTime(0);
 
     for (;;) {
         if (s_configDirty) { s_configDirty = false; applyConfig(); }

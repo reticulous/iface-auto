@@ -22,7 +22,10 @@ sockets, a split rx task) while staying wire-identical.
 
 The interface runs as two tasks (`auto` and a small `auto-rx` helper) and
 self-registers with **rnsd** as a single interface named `auto`. It needs an IP
-network, so it asks **spangap-net** to bring WiFi up and stays active while
+network, so it asks **spangap-net** to bring WiFi up — but **only when enabled**:
+the `netUp()` request goes through the enable-driven `applyConfig` reconcile
+(now-at-boot and on `s.auto` changes), not an unconditional boot call, so a
+disabled interface never powers the radio. It then stays active while
 `netIsUp()`. Peer discovery uses IPv6 link-local multicast; data uses unicast
 UDP to each discovered peer. From rnsd's point of view it presents one
 broadcast-style interface whose outbound packets fan out as a unicast datagram
