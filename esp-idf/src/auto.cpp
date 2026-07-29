@@ -83,7 +83,10 @@ static const char* TAG = "auto";
 /* ─────────────── globals (single-task ownership) ─────────────── */
 
 static TaskHandle_t  s_task     = nullptr;
+static TaskHandle_t  s_rxTask   = nullptr;
 static QueueHandle_t s_rxQueue  = nullptr;
+static volatile bool s_stop     = false;   /* rns stop → break both task loops */
+static volatile bool s_parked   = false;   /* true while the main task is parked (stopped); autoStop waits on it */
 
 static int           s_rnsdHandle = -1;
 
@@ -287,6 +290,7 @@ static bool openSockets(void) {
     int da = makeSock(DATA_PORT, false);
     if (da < 0) { lwip_close(d); lwip_close(u); return false; }
     s_discSock = d; s_uniSock = u; s_dataSock = da;
+    if (s_rxTask) xTaskNotifyGive(s_rxTask);   /* wake the parked rx task onto the fresh sockets */
     return true;
 }
 
@@ -538,9 +542,20 @@ static void rxRecvOne(int fd, uint8_t kind) {
 }
 
 static void autoRxTaskMain(void*) {
+    /* Park, don't delete: this task lives across rns stop/start. When stopped it
+     * blocks on the notify above (sockets are -1 after the main task's teardown);
+     * when resumed and openSockets() reopens them it selects again. */
     for (;;) {
         int d = s_discSock, u = s_uniSock, da = s_dataSock;
-        if (d < 0 && u < 0 && da < 0) { vTaskDelay(pdMS_TO_TICKS(200)); continue; }
+        if (d < 0 && u < 0 && da < 0) {
+            /* No sockets (wifi down / interface torn down, or main task parked on
+             * stop): block until openSockets() opens them and notifies us, instead
+             * of spinning at 5 Hz. On rns stop the main task's teardown() drops the
+             * sockets to -1, so we naturally idle here; autoStart() notifies us to
+             * re-check and resume once the sockets reopen. Never deleted. */
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
+        }
 
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -549,7 +564,7 @@ static void autoRxTaskMain(void*) {
         if (u  >= 0) { FD_SET(u,  &rfds); if (u  > maxfd) maxfd = u;  }
         if (da >= 0) { FD_SET(da, &rfds); if (da > maxfd) maxfd = da; }
 
-        struct timeval tv = { 1, 0 };   /* 1 s cap to re-read socket set */
+        struct timeval tv = { 1, 0 };   /* 1 s cap to re-read socket set / re-check s_stop */
         int n = select(maxfd + 1, &rfds, nullptr, nullptr, &tv);
         if (n <= 0) continue;
 
@@ -617,15 +632,8 @@ static TickType_t nextDeadline(void) {
 static void autoTaskMain(void*) {
     info("[%s] task up", TAG);
 
-    /* Boot barrier: stay quiet until rns.ready — clock valid, network up (if
-     * configured), and the minimum settle floor elapsed. Bounded fallback so a
-     * wedged rnsd can't pin us. No rnsd, no
-     * point — so bail (don't start) if rns.ready never comes. */
-    if (!waitForFlag("rns.ready", 120)) {
-        err("[%s] rns.ready never set — not starting", TAG);
-        killSelf();
-    }
-
+    /* No boot barrier here: the RNS orchestrator only calls autoStart() (which
+     * spawns this task) after rnsd is up and past its boot window. */
     itsClientInit(2);
     s_rxQueue = xQueueCreateWithCaps(RX_QDEPTH, sizeof(auto_rx_t), MALLOC_CAP_SPIRAM);
 
@@ -634,24 +642,26 @@ static void autoTaskMain(void*) {
     publishState("down");
 
     s_netUp = netIsUp();
-    netRegister(NET_EV_UP,   onNetUp);
-    netRegister(NET_EV_DOWN, onNetDown);
+    /* Register net callbacks once for the process — net's registry is append-only
+     * (no unregister), so re-registering per rns start would pile up duplicates.
+     * The callbacks guard s_task, so staying live across a stop is harmless. */
+    static bool s_netCbsRegistered = false;
+    if (!s_netCbsRegistered) {
+        s_netCbsRegistered = true;
+        netRegister(NET_EV_UP,   onNetUp);
+        netRegister(NET_EV_DOWN, onNetDown);
+    }
     storageSubscribeChanges("s.auto", onCfgChange);
     storageSubscribeChanges("secrets.auto", onCfgChange);  /* IFAC passphrase */
 
-    spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 2, 0, STACK_PSRAM);
-
-    /* Reconcile against s.auto.enable up front: a disabled interface must not
-     * power the WiFi radio. applyConfig() asks net to bring WiFi up only when
-     * enabled — every bring-up request routes through the enable gate. */
-    applyConfig();
-
-    /* Wait for a valid clock before bringing the interface up and announcing —
-     * only when actually coming up (netUp() in applyConfig lets SNTP sync
-     * first). Bounded; proceeds on timeout. */
-    if (s_enabled) waitForTime(0);
-
-    for (;;) {
+  for (;;) {   /* Park, don't delete: this task lives across rns stop/start, so its
+                * ITS slot + rx queue + net-cb registration are reused, not leaked. */
+    /* (Re)apply config on entry + each resume → reconcile against s.auto.enable
+     * (a disabled interface must not power the WiFi radio), then bring sockets up +
+     * register while enabled + netUp. applyConfig() asks net to bring WiFi up only
+     * when enabled — every bring-up request routes through the enable gate. */
+    s_configDirty = true;
+    while (!s_stop) {
         if (s_configDirty) { s_configDirty = false; applyConfig(); }
 
         if (s_enabled && s_netUp && !s_running) tryBringUp();
@@ -672,7 +682,41 @@ static void autoTaskMain(void*) {
 
         publishStats();
         itsPoll(nextDeadline());
+    }   /* end while(!s_stop) */
+
+    /* rns stop: tear down sockets (disc/uni/data → -1) and deregister from rnsd
+     * (frees rnsd's iface slot; resets peers). The rx task self-parks once the
+     * sockets go -1. Keep the ITS slot + rx queue for the next start. Then PARK on
+     * the inbox until autoStart() clears s_stop and notifies. */
+    teardown();
+    s_parked = true;
+    info("[%s] stopped", TAG);
+    while (s_stop) itsPoll(portMAX_DELAY);
+    s_parked = false;
+  }
+}
+
+/* ── RNS lifecycle hooks (registered with the orchestrator; see rnsServiceRegister) ── */
+static void autoStart(void) {
+    s_stop = false;
+    if (!s_task) {
+        /* Spawn the rx helper first (main task's openSockets notifies it), then the
+         * main task — same args onInit used. */
+        s_rxTask = spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 2, 0, STACK_PSRAM);
+        s_task   = spawnTask(autoTaskMain, TAG, 6144, nullptr, 2, 0, STACK_PSRAM);
+    } else {
+        xTaskNotifyGive(s_task);     /* un-park the resident main task */
+        xTaskNotifyGive(s_rxTask);   /* un-park the rx helper */
     }
+}
+
+static void autoStop(void) {
+    if (!s_task || s_stop) return;
+    s_stop = true;
+    xTaskNotifyGive(s_task);     /* break the itsPoll work loop; the task parks, not deleted */
+    xTaskNotifyGive(s_rxTask);   /* break the park; select() re-checks via its 1 s cap */
+    for (int i = 0; i < 300 && !s_parked; i++) delay(10);   /* await main-task park */
+    if (!s_parked) warn("[%s] stop timed out", TAG);
 }
 
 void AutoService::onInit() {
@@ -682,6 +726,9 @@ void AutoService::onInit() {
      * AutoPanel.vue via web: false). */
     cliRegisterCmd("auto", cliAuto);
 
-    /* Core 0 alongside net + rnsd, prio 2, PSRAM stack. */
-    s_task = spawnTask(autoTaskMain, TAG, 6144, nullptr, 2, 0, STACK_PSRAM);
+    /* Register with the RNS orchestrator instead of self-spawning: rnsStart()
+     * calls autoStart() (spawning both the main + rx tasks, Core 0 alongside net +
+     * rnsd, prio 2, PSRAM stacks) once rnsd is up and past its boot window, and
+     * rnsStop() calls autoStop(). */
+    rnsServiceRegister(TAG, autoStart, autoStop, RNS_PHASE_IFACE);
 }
