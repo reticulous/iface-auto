@@ -34,10 +34,10 @@ Relative to a bare upstream AutoInterface, this straddle provides:
 
 - **`auto`** — the interface task. Owns the peer table, group state, all
   sockets' lifecycle, registration with rnsd, and every `sendto()` (announces,
-  reverse-peering, and data fan-out). Core 0, priority 2, 6 KB PSRAM stack —
+  reverse-peering, and data fan-out). Core 0, priority 1, 6 KB PSRAM stack —
   pinned alongside net and rnsd so the ITS hops between them stay on-core.
 - **`auto-rx`** — a small helper that `select()`s the three UDP sockets, copies
-  each datagram into a PSRAM queue, and notifies `auto`. Core 0, priority 2,
+  each datagram into a PSRAM queue, and notifies `auto`. Core 0, priority 1,
   4 KB PSRAM stack.
 
 ### Why two tasks

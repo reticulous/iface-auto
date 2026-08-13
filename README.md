@@ -81,6 +81,9 @@ Settings (`s.*`, persisted and synced to the browser):
 | `s.auto.mode` | `"gateway"` | interface mode: `full`, `gateway`, `access_point`, `roaming`, `boundary` |
 | `s.auto.ifac_netname` | `""` | IFAC network name (empty = open) |
 | `s.auto.ifac_size` | `0` | IFAC access-code length in bytes (rnsd clamps to 1–64 when IFAC is active) |
+| `s.auto.retain_announces` | `1` | Keep the announces heard on the LAN, not just forward them. On by default: the peer set is bounded by the LAN, and these are usually your own nodes. |
+| `s.auto.policy_manual` | `0` | Set this interface's transit policy by hand instead of inferring it from `mode`. Off = auto, which is stock behaviour and leaves `route_for` unread. |
+| `s.auto.route_for` | `0` | Read only when `policy_manual = 1`. `1` = we provide transport for the nodes on this LAN: we relay announces towards them, we search on their behalf, and their paths get `s.rnsd.path.ttl_custody`. `0` = we still talk to them as an endpoint, we just don't work for them. Answering a path request for a destination we already know is never gated by this. See `rns/README.md`. |
 
 Secrets (`secrets.*`, persisted on-device, never synced to the browser):
 

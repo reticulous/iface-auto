@@ -100,6 +100,10 @@ static char          s_ifacNetname[32] = "";  /* IFAC network_name (s.) */
 static char          s_ifacNetkey[64]  = "";  /* IFAC passphrase (secrets.) */
 static uint8_t       s_ifacSize = 0;          /* IFAC access-code length */
 static uint8_t       s_announceCap = RNS_IFACE_ANNOUNCE_CAP_DEFAULT;  /* % bw cap for announces */
+static uint8_t       s_retainAnnounces = 1;   /* keep announces heard on the LAN */
+/* Transit policy — 0 = auto, i.e. inferred from mode exactly as before. */
+static uint8_t       s_policyManual = 0;
+static uint8_t       s_routeFor = 0;
 
 static int           s_ifIndex = 0;
 static struct in6_addr s_ourAddr   = {};
@@ -220,6 +224,9 @@ static bool registerWithRnsd(void) {
     reg.rpt = 0;
     reg.ifac_size = s_ifacSize;
     reg.announce_cap = s_announceCap;
+    reg.retain_announces = s_retainAnnounces;
+    reg.policy_manual = s_policyManual;
+    reg.route_for     = s_routeFor;
     reg.point_to_point = 1;   /* switched/multicast LAN: every peer hears every
                                  other, so no hidden-node problem */
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
@@ -486,17 +493,26 @@ static void applyConfig(void) {
     char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("secrets.auto.ifac_netkey", ifk, sizeof(ifk), "");
     uint8_t ifs = (uint8_t)storageGetInt("s.auto.ifac_size", 0);
     uint8_t acap = (uint8_t)storageGetInt("s.auto.announce_cap", RNS_IFACE_ANNOUNCE_CAP_DEFAULT);
+    /* On by default: the LAN peer set is bounded by the LAN, and these are
+     * usually our own nodes. */
+    uint8_t ret = (uint8_t)storageGetInt("s.auto.retain_announces", 1);
+    uint8_t polman = (uint8_t)storageGetInt("s.auto.policy_manual", 0);
+    uint8_t rtfor  = (uint8_t)storageGetInt("s.auto.route_for", 0);
 
     bool groupChanged = s_group != group;
     bool changed = groupChanged || (m != s_mode)
                    || strcmp(ifn, s_ifacNetname) != 0 || strcmp(ifk, s_ifacNetkey) != 0
-                   || ifs != s_ifacSize || acap != s_announceCap;
+                   || ifs != s_ifacSize || acap != s_announceCap
+                   || ret != s_retainAnnounces;
     s_group = group;
     s_mode  = m;
     safeStrncpy(s_ifacNetname, ifn, sizeof(s_ifacNetname));
     safeStrncpy(s_ifacNetkey,  ifk, sizeof(s_ifacNetkey));
     s_ifacSize = ifs;
     s_announceCap = acap;
+    s_retainAnnounces = ret;
+    s_policyManual = polman;
+    s_routeFor = rtfor;
     if (groupChanged) { computeGroupAddr(); storageSet("auto.group_addr", s_groupAddrStr); }
 
     if (!s_enabled) { teardown(); publishState("down"); return; }
@@ -702,8 +718,8 @@ static void autoStart(void) {
     if (!s_task) {
         /* Spawn the rx helper first (main task's openSockets notifies it), then the
          * main task — same args onInit used. */
-        s_rxTask = spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 2, 0, STACK_PSRAM);
-        s_task   = spawnTask(autoTaskMain, TAG, 6144, nullptr, 2, 0, STACK_PSRAM);
+        s_rxTask = spawnTask(autoRxTaskMain, "auto-rx", 4096, nullptr, 1, 0, STACK_PSRAM);
+        s_task   = spawnTask(autoTaskMain, TAG, 6144, nullptr, 1, 0, STACK_PSRAM);
     } else {
         xTaskNotifyGive(s_task);     /* un-park the resident main task */
         xTaskNotifyGive(s_rxTask);   /* un-park the rx helper */
@@ -728,7 +744,7 @@ void AutoService::onInit() {
 
     /* Register with the RNS orchestrator instead of self-spawning: rnsStart()
      * calls autoStart() (spawning both the main + rx tasks, Core 0 alongside net +
-     * rnsd, prio 2, PSRAM stacks) once rnsd is up and past its boot window, and
+     * rnsd, prio 1, PSRAM stacks) once rnsd is up and past its boot window, and
      * rnsStop() calls autoStop(). */
     rnsServiceRegister(TAG, autoStart, autoStop, RNS_PHASE_IFACE);
 }
