@@ -24,7 +24,7 @@ services:
 # the state in words and the four counters as one line.
 settings:
   - at:
-      - { id: mesh, label: "Mesh Network", short: "Mesh", order: 3 }
+      - { id: reticulum }
       - { id: interfaces, label: "RNS Interfaces", short: "Ifaces", order: 2 }
       - { id: auto, label: "AutoInterface", short: "Auto" }
     rows:
@@ -48,8 +48,10 @@ settings:
       - text: { label: "IFAC network", key: "s.auto.ifac_netname" }
       - text: { label: "IFAC passphrase", key: "secrets.auto.ifac_netkey", secret: true }
       - section: "Status"
-      - value: { label: "State", key: "auto.state_text" }
-      - value: { label: "Address", key: "auto.addr", copyable: true }
-        when_key: auto.up
-      - value: { label: "Peers", key: "auto.peers" }
-      - value: { label: "Packets", key: "auto.traffic" }
+      - info:
+          rows:
+            - value: { label: "State", key: "auto.state_text" }
+            - value: { label: "Address", key: "auto.addr", copyable: true }
+              when_key: auto.up
+            - value: { label: "Peers", key: "auto.peers" }
+            - value: { label: "Packets", key: "auto.traffic" }
