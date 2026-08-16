@@ -7,7 +7,6 @@ name: reticulous/iface-auto
 prefix: rns_auto
 version: 0.0.0
 firmware: esp-idf
-browser: browser
 platforms: [idf]
 requires:
   - reticulous/rns
@@ -19,25 +18,21 @@ requires:
 services:
   - { class: AutoService, header: auto.h }
 
-# Browser-side UI registration (parallel to services: above) — auto-wired into
-# the buildable SPA via straddles.gen.ts; no web-interface edit needed.
-browser_register:
-  - call: registerAuto
-    module: modules/auto
 
-# Declarative settings: the LCD pane + storage defaults are generated from this
-# block. web: false — the rich AutoPanel.vue (IFAC secret field, live status
-# badges) keeps owning the web leaf; only the LCD + defaults are generated.
+# Declarative settings: both surfaces + the storage defaults are generated from
+# this block. The live status rows show strings auto.cpp publishes finished —
+# the state in words and the four counters as one line.
 settings:
-  - menu:
-      - { id: mesh, label: "Mesh Network", placement: 3 }
-      - { id: interfaces, label: "RNS Interfaces", placement: 2 }
-      - { id: auto, label: "AutoInterface" }
-    web: false
+  - at:
+      - { id: mesh, label: "Mesh Network", short: "Mesh", order: 3 }
+      - { id: interfaces, label: "RNS Interfaces", short: "Ifaces", order: 2 }
+      - { id: auto, label: "AutoInterface", short: "Auto" }
     rows:
       - section: "AutoInterface"
-      - switch: { label: "Enable", key: "s.auto.enable", default: 0 }
+      - caption: "Zero-configuration RNS over the local network. Peers on the same WiFi link are discovered with IPv6 link-local multicast — no addresses to configure — and RNS packets travel over UDP. Wire-compatible with desktop Reticulum's AutoInterface. Requires WiFi to be up."
+      - switch: { label: "Enabled", key: "s.auto.enable", default: 0 }
       - text:   { label: "Group", key: "s.auto.group", default: "reticulum" }
+      - caption: "Only nodes sharing this name peer with each other. Changing it forms a separate network."
       - dropdown:
           label: "Mode"
           key: "s.auto.mode"
@@ -48,7 +43,13 @@ settings:
             - { v: "access_point", l: "Access point" }
             - { v: "roaming",      l: "Roaming" }
             - { v: "boundary",     l: "Boundary" }
+      - section: "Access code"
+      - caption: "IFAC: a network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface."
+      - text: { label: "IFAC network", key: "s.auto.ifac_netname" }
+      - text: { label: "IFAC passphrase", key: "secrets.auto.ifac_netkey", secret: true }
       - section: "Status"
-      - value: { label: "State", key: "auto.state" }
+      - value: { label: "State", key: "auto.state_text" }
+      - value: { label: "Address", key: "auto.addr", copyable: true }
+        when_key: auto.up
       - value: { label: "Peers", key: "auto.peers" }
-      - value: { label: "Address", key: "auto.addr" }
+      - value: { label: "Packets", key: "auto.traffic" }

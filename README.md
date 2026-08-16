@@ -104,7 +104,7 @@ Telemetry (published read-only):
 | `auto.stats.rx_bytes`, `auto.stats.rx_packets`, `auto.stats.rx_drop` | inbound counters |
 
 The settings pane (LCD) and storage defaults are generated from the `settings:`
-block in `straddle.yaml`; the browser leaf is owned by `AutoPanel.vue`.
+block in `straddle.yaml`, on both surfaces.
 
 ## CLI
 

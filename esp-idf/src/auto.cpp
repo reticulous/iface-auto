@@ -183,9 +183,22 @@ static peer_t* findPeer(const struct in6_addr& a) {
 
 /* ─────────────── publish ─────────────── */
 
+/* The words a settings row shows for each state. Publishing them beside the
+ * code that decides the state is what keeps a state->wording table out of both
+ * UIs — they render whatever string lands here. */
+static const char* stateWords(const char* state) {
+    if (strcmp(state, "up") == 0)               return "up";
+    if (strcmp(state, "waiting_wifi") == 0)     return "waiting wifi";
+    if (strcmp(state, "waiting_addr") == 0)     return "waiting address";
+    if (strcmp(state, "rnsd_unavailable") == 0) return "rnsd unavailable";
+    if (strcmp(state, "error") == 0)            return "error";
+    return *state ? state : "down";
+}
+
 static void publishState(const char* state) {
     storageBegin();
     storageSet("auto.state", state);
+    storageSet("auto.state_text", stateWords(state));
     storageSet("auto.up", s_running ? 1 : 0);
     storageEnd();
 }
@@ -200,6 +213,13 @@ static void publishStats(void) {
     storageSet("auto.stats.rx_packets", (int)(s_rxPackets & 0x7fffffff));
     storageSet("auto.stats.tx_fail",    (int)(s_txFail    & 0x7fffffff));
     storageSet("auto.stats.rx_drop",    (int)(s_rxDrop    & 0x7fffffff));
+    /* The four counters as the one line a settings row shows. Composing it here
+     * rather than in each UI is the same rule as the state wording above. */
+    char buf[96];
+    snprintf(buf, sizeof(buf), "rx %u (drop %u) \xC2\xB7 tx %u (fail %u)",
+             (unsigned)(s_rxPackets & 0x7fffffff), (unsigned)(s_rxDrop  & 0x7fffffff),
+             (unsigned)(s_txPackets & 0x7fffffff), (unsigned)(s_txFail  & 0x7fffffff));
+    storageSet("auto.traffic", buf);
     storageEnd();
 }
 
