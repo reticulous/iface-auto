@@ -25,8 +25,7 @@ services:
 settings:
   - at:
       - { id: reticulum }
-      - { id: interfaces, label: "RNS Interfaces", short: "Ifaces", order: 2 }
-      - { id: auto, label: "AutoInterface", short: "Auto" }
+      - { id: auto, label: "AutoInterface", short: "Auto", order: 2 }
     rows:
       - section: "AutoInterface"
       - caption: "Zero-configuration RNS over the local network. Peers on the same WiFi link are discovered with IPv6 link-local multicast — no addresses to configure — and RNS packets travel over UDP. Wire-compatible with desktop Reticulum's AutoInterface. Requires WiFi to be up."
