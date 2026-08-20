@@ -105,7 +105,7 @@ unicast datagrams to all peers.
         │        ▲                    │               │
         │   itsRecv (outbound)   itsSend (inbound)    │
         │        │                    ▼               │
-        │   drainOutbound        drainRx ◄── s_rxQueue (PSRAM)
+        │   drainOutbound        drainRx ◄── s_rxQueue (ptrs; payloads PSRAM)
         └────────┼─────────────────────▲──────────────┘
                  │ sendto()             │ xTaskNotifyGive
         discovery / unicast / data sockets
@@ -126,12 +126,21 @@ The task waits for the `rns.ready` flag (bounded 120 s; it exits if rnsd never
 comes up — there is no point running without rnsd). It then calls `netUp()` to
 ask net to bring WiFi up, waits for a valid clock, and enters the loop.
 
-Bring-up is gated on `netIsUp()`. On enable + WiFi up it brings the netif's IPv6
-link-local address up with `esp_netif_create_ip6_linklocal`, retrying on the
-deadline loop until DAD assigns it (`auto.state = waiting_addr`), then opens the
-sockets, registers with rnsd, and starts announcing (`auto.state = up`). On WiFi
+Bring-up is gated on `netIsUp()`. On enable + WiFi up it polls
+`esp_netif_get_ip6_linklocal` on the deadline loop until DAD has validated the
+netif's link-local address (`auto.state = waiting_addr`), requesting one with
+`esp_netif_create_ip6_linklocal` at most once per netif per link cycle if none
+exists (see Pitfalls), then opens the sockets, registers with rnsd, and starts
+announcing (`auto.state = up`). On WiFi
 down, group change, mode change, IFAC change, or disable it tears the sockets +
 registration down; `auto-rx` parks itself once the sockets become `-1`.
+
+While up, the interface holds net's multicast-RX hold
+(`netMulticastRxAcquire()`, released in `teardown()`): at net's default
+`WIFI_PS_MAX_MODEM` the station sleeps through the DTIM beacons after which the
+access point transmits buffered multicast, so group discovery would go deaf.
+The hold pins power-save to `WIFI_PS_MIN_MODEM` — wake every DTIM — for as long
+as the interface runs.
 
 `applyConfig()` re-reads all keys on any `s.auto`/`secrets.auto` change. A change
 to group, mode, or IFAC while running tears down and rebuilds so the new
@@ -139,6 +148,15 @@ settings take effect; a group change recomputes the multicast address.
 
 ## Pitfalls
 
+- **`esp_netif_create_ip6_linklocal` is not idempotent.** Every call rewrites
+  the netif's slot-0 address and resets it to TENTATIVE, restarting
+  duplicate-address detection (~1 s) — it also demotes an already-valid
+  address, leaving the netif with no usable IPv6 source at all until DAD
+  finishes. Request it only when `esp_netif_get_ip6_linklocal` reports no
+  valid address, and at most once per netif per link cycle
+  (`s_llReqNetif`, reset on net-down). Calling it from the 500 ms bring-up
+  retry loop keeps the address tentative forever and parks the interface in
+  `waiting_addr`.
 - **lwIP core locking is off**, so never call the raw lwIP API from these tasks
   — only BSD sockets are task-safe. This is the whole reason for the `auto-rx`
   split; don't collapse the two tasks back into one.
@@ -150,15 +168,13 @@ settings take effect; a group change recomputes the multicast address.
   close a socket from the rx task.
 - **rnsd must be up first.** `requires: reticulous/rns` topo-orders rnsd ahead of
   this interface so `RNSD_PORT_IFACE` exists before registration.
-- **`s_rxQueue` still lives in PSRAM — a known, deferred hazard.** It is built as
-  `xQueueCreateWithCaps(RX_QDEPTH /*16*/, sizeof(auto_rx_t) /*~1.2 KB*/,
-  MALLOC_CAP_SPIRAM)` (~19 KB in PSRAM). A FreeRTOS queue touched inside a
-  critical section is exactly the class of object that must be in internal RAM:
-  the identical `S32C1I`-spinlock-on-PSRAM corruption was observed and fixed for
-  the ITS inbox queue (see the PSRAM-placement discussion in spangap-core's
-  `docs/memory-internals.md`). The static control/storage split ITS uses for its
-  *stream buffers* does not apply here — a queue copies items **under** the lock,
-  so the whole thing has to be internal. Fixing this therefore costs ~19 KB of
-  scarce internal DRAM, or a redesign to queue small pointers with PSRAM-resident
-  payloads (as ITS does for its inbox). The cost decision is pending; until then
-  `auto-rx` → `auto` datagram delivery rides the same latent bug that bit ITS.
+- **`s_rxQueue`'s control block and item storage must stay in internal RAM.**
+  It is a queue of `auto_rx_t*` pointers (`xQueueCreateWithCaps(RX_QDEPTH,
+  sizeof(auto_rx_t*), MALLOC_CAP_INTERNAL)`); each datagram is a PSRAM block
+  sized to its payload, allocated by `auto-rx` and freed by the auto task after
+  processing (`teardown()` frees any leftovers). A FreeRTOS queue takes its
+  spinlock inside the control struct and copies items **under** that lock, and
+  spinlocks in PSRAM corrupt — the `S32C1I`-on-PSRAM failure documented in
+  spangap-core's `docs/memory-internals.md`, which bit the ITS inbox queue (now
+  this same pointer-queue shape). Don't "simplify" back to queueing the ~1.2 KB
+  payloads by value in a PSRAM queue.

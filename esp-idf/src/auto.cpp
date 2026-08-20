@@ -50,6 +50,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
+#include <cstddef>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -106,6 +107,7 @@ static uint8_t       s_policyManual = 0;
 static uint8_t       s_routeFor = 0;
 
 static int           s_ifIndex = 0;
+static esp_netif_t*  s_llReqNetif = nullptr;   /* netif we already asked for a link-local (see tryBringUp) */
 static struct in6_addr s_ourAddr   = {};
 static char          s_ourAddrStr[INET6_ADDRSTRLEN] = {0};
 static uint8_t       s_ourToken[TOKEN_LEN] = {0};
@@ -340,12 +342,16 @@ static esp_netif_t* pickNetif(void) {
     return esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
 }
 
+static void drainRx(void);
+
 static void teardown(void) {
     /* rx task self-parks once the sockets become -1 (see autoRxTaskMain). */
     closeSockets();
     deregisterFromRnsd();
+    if (s_running) netMulticastRxRelease();   /* pairs with tryBringUp's acquire */
     s_peerCount = 0;
     s_running = false;
+    drainRx();   /* frees queued-but-unprocessed datagram blocks */
     if (s_netUp) publishState("waiting_addr"); else publishState("waiting_wifi");
 }
 
@@ -358,10 +364,17 @@ static void tryBringUp(void) {
     esp_netif_t* nif = pickNetif();
     if (!nif) { publishState("waiting_wifi"); return; }
 
-    esp_netif_create_ip6_linklocal(nif);   /* idempotent; kicks off DAD */
-
     esp_ip6_addr_t ll;
     if (esp_netif_get_ip6_linklocal(nif, &ll) != ESP_OK) {
+        /* No valid link-local yet — request one, at most ONCE per netif per
+         * link cycle. esp_netif_create_ip6_linklocal is NOT idempotent: every
+         * call rewrites the slot-0 address and resets it to TENTATIVE, which
+         * restarts duplicate-address detection (~1 s). Called from this 500 ms
+         * retry loop it would demote an already-valid address and then keep
+         * DAD from ever finishing — the interface parks in waiting_addr for
+         * good. Flag set only on success so a not-yet-up netif retries. */
+        if (s_llReqNetif != nif && esp_netif_create_ip6_linklocal(nif) == ESP_OK)
+            s_llReqNetif = nif;
         publishState("waiting_addr");
         return;
     }
@@ -375,6 +388,10 @@ static void tryBringUp(void) {
 
     s_peerCount = 0;
     s_running = true;
+    /* At net's default WIFI_PS_MAX_MODEM the station sleeps through the DTIM
+     * beacons that carry the AP's buffered multicast — the discovery group
+     * goes deaf. Hold DTIM-cadence power-save while the interface is up. */
+    netMulticastRxAcquire();
     s_lastAnnounce = 0;   /* announce immediately */
     s_lastPeerJob  = xTaskGetTickCount();
     publishState("up");
@@ -389,11 +406,24 @@ static void tryBringUp(void) {
 
 /* ─────────────── discovery ─────────────── */
 
+/* A failed sendto is otherwise a bare counter — name the destination and
+ * errno in the log, rate-limited, so a broken TX path says what it is. */
+static void noteSendFail(const char* what, const struct in6_addr& dst) {
+    s_txFail++;
+    static TickType_t s_lastWarn = 0;
+    TickType_t now = xTaskGetTickCount();
+    if (s_lastWarn != 0 && (now - s_lastWarn) < pdMS_TO_TICKS(10000)) return;
+    s_lastWarn = now;
+    char dstStr[INET6_ADDRSTRLEN];
+    inet_ntop(AF_INET6, &dst, dstStr, sizeof(dstStr));
+    warn("%s send to %s failed: %s (errno %d)", what, dstStr, strerror(errno), errno);
+}
+
 static void sendToken(int fd, const struct in6_addr& addr, uint16_t port) {
     struct sockaddr_in6 sa;
     fillDest(sa, addr, port);
     int n = sendto(fd, s_ourToken, TOKEN_LEN, 0, (struct sockaddr*)&sa, sizeof(sa));
-    if (n != TOKEN_LEN) s_txFail++;
+    if (n != TOKEN_LEN) noteSendFail("token", addr);
 }
 
 static void sendAnnounce(void) {
@@ -448,22 +478,26 @@ static void peerJob(void) {
 
 static void drainRx(void) {
     if (!s_rxQueue) return;
-    PSRAM_BSS static auto_rx_t slot;   /* one task; static avoids 1.2 KB of stack churn */
-    while (xQueueReceive(s_rxQueue, &slot, 0) == pdTRUE) {
-        if (!s_running) continue;
-        if (slot.kind == RX_DISC) {
-            handleDiscovery(slot.src, slot.data, slot.len);
-            continue;
+    auto_rx_t* m;
+    while (xQueueReceive(s_rxQueue, &m, 0) == pdTRUE) {
+        if (s_running) {
+            if (m->kind == RX_DISC) {
+                handleDiscovery(m->src, m->data, m->len);
+            } else {
+                /* RX_DATA: accept only from a known peer, refresh its liveness. */
+                peer_t* p = findPeer(m->src);
+                if (p) {
+                    p->last_heard = xTaskGetTickCount();
+                    s_rxPackets++;
+                    s_rxBytes += m->len;
+                    if (s_rnsdHandle >= 0) {
+                        size_t s = itsSend(s_rnsdHandle, m->data, m->len, pdMS_TO_TICKS(100));
+                        if (s == 0) warn("rnsd ITS send dropped (%u B)", (unsigned)m->len);
+                    }
+                }
+            }
         }
-        /* RX_DATA: accept only from a known peer, refresh its liveness. */
-        peer_t* p = findPeer(slot.src);
-        if (!p) continue;
-        p->last_heard = xTaskGetTickCount();
-        s_rxPackets++;
-        s_rxBytes += slot.len;
-        if (s_rnsdHandle < 0) continue;
-        size_t s = itsSend(s_rnsdHandle, slot.data, slot.len, pdMS_TO_TICKS(100));
-        if (s == 0) warn("rnsd ITS send dropped (%u B)", (unsigned)slot.len);
+        free(m);
     }
 }
 
@@ -481,7 +515,7 @@ static void drainOutbound(void) {
             struct sockaddr_in6 sa;
             fillDest(sa, s_peers[i].addr, DATA_PORT);
             if (sendto(s_dataSock, pkt, n, 0, (struct sockaddr*)&sa, sizeof(sa)) != (int)n)
-                s_txFail++;
+                noteSendFail("data", s_peers[i].addr);
         }
     }
 }
@@ -558,6 +592,7 @@ static void onNetUp(const char*) {
 
 static void onNetDown(const char*) {
     s_netUp = false;
+    s_llReqNetif = nullptr;   /* the next link cycle needs its own link-local request */
     teardown();
     publishState("waiting_wifi");
 }
@@ -565,15 +600,22 @@ static void onNetDown(const char*) {
 /* ─────────────── rx helper task ─────────────── */
 
 static void rxRecvOne(int fd, uint8_t kind) {
-    PSRAM_BSS static auto_rx_t slot;   /* only the rx task touches it; keeps its stack small */
+    PSRAM_BSS static auto_rx_t slot;   /* rx staging; only the rx task touches it */
     struct sockaddr_in6 sa;
     socklen_t sl = sizeof(sa);
     int n = recvfrom(fd, slot.data, sizeof(slot.data), 0, (struct sockaddr*)&sa, &sl);
     if (n <= 0) return;
-    slot.len  = (uint16_t)n;
-    slot.kind = kind;
-    slot.src  = sa.sin6_addr;
-    if (xQueueSend(s_rxQueue, &slot, 0) != pdTRUE) { s_rxDrop++; return; }
+    /* Hand the auto task a PSRAM block sized to the datagram; the queue itself
+     * carries only the pointer (see the queue's creation for why). The auto
+     * task frees it after processing. */
+    auto_rx_t* m = (auto_rx_t*)heap_caps_malloc(offsetof(auto_rx_t, data) + n,
+                                                MALLOC_CAP_SPIRAM);
+    if (!m) { s_rxDrop++; return; }
+    m->len  = (uint16_t)n;
+    m->kind = kind;
+    m->src  = sa.sin6_addr;
+    std::memcpy(m->data, slot.data, n);
+    if (xQueueSend(s_rxQueue, &m, 0) != pdTRUE) { free(m); s_rxDrop++; return; }
     if (s_task) xTaskNotifyGive(s_task);
 }
 
@@ -671,7 +713,12 @@ static void autoTaskMain(void*) {
     /* No boot barrier here: the RNS orchestrator only calls autoStart() (which
      * spawns this task) after rnsd is up and past its boot window. */
     itsClientInit(2);
-    s_rxQueue = xQueueCreateWithCaps(RX_QDEPTH, sizeof(auto_rx_t), MALLOC_CAP_SPIRAM);
+    /* Pointer queue, control + item storage in INTERNAL RAM: a FreeRTOS queue
+     * takes its spinlock inside the control struct, and spinlocks in PSRAM
+     * corrupt (the S32C1I-on-PSRAM failure in spangap-core's
+     * docs/memory-internals.md — it bit the ITS inbox, which uses this same
+     * shape). Payloads are per-datagram PSRAM blocks (see rxRecvOne). */
+    s_rxQueue = xQueueCreateWithCaps(RX_QDEPTH, sizeof(auto_rx_t*), MALLOC_CAP_INTERNAL);
 
     computeGroupAddr();
     storageSet("auto.group_addr", s_groupAddrStr);

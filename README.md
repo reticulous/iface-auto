@@ -27,7 +27,9 @@ the `netUp()` request goes through the enable-driven `applyConfig` reconcile
 (now-at-boot and on `s.auto` changes), not an unconditional boot call, so a
 disabled interface never powers the radio. It then stays active while
 `netIsUp()`. Peer discovery uses IPv6 link-local multicast; data uses unicast
-UDP to each discovered peer. From rnsd's point of view it presents one
+UDP to each discovered peer. While up it holds net's multicast-RX hold, keeping
+WiFi power-save at DTIM cadence — at the default max modem sleep the station
+misses most multicast, and discovery would go deaf. From rnsd's point of view it presents one
 broadcast-style interface whose outbound packets fan out as a unicast datagram
 to every live peer — the same shape as the LoRa and ESP-NOW interfaces.
 
