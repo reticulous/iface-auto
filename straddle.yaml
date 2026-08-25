@@ -25,28 +25,12 @@ services:
 settings:
   - at:
       - { id: reticulum }
-      - { id: auto, label: "AutoInterface", short: "Auto", order: 2 }
+      - { id: interfaces }
+    order: 2
     rows:
-      - section: "AutoInterface"
+      - heading: "AutoInterface"
       - caption: "Zero-configuration RNS over the local network. Peers on the same WiFi link are discovered with IPv6 link-local multicast — no addresses to configure — and RNS packets travel over UDP. Wire-compatible with desktop Reticulum's AutoInterface. Requires WiFi to be up."
-      - switch: { label: "Enabled", key: "s.auto.enable", default: 0 }
-      - text:   { label: "Group", key: "s.auto.group", default: "reticulum" }
-      - caption: "Only nodes sharing this name peer with each other. Changing it forms a separate network."
-      - dropdown:
-          label: "Mode"
-          key: "s.auto.mode"
-          default: "gateway"
-          options:
-            - { v: "gateway",      l: "Gateway" }
-            - { v: "full",         l: "Full" }
-            - { v: "access_point", l: "Access point" }
-            - { v: "roaming",      l: "Roaming" }
-            - { v: "boundary",     l: "Boundary" }
-      - section: "Access code"
-      - caption: "IFAC: a network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface."
-      - text: { label: "IFAC network", key: "s.auto.ifac_netname" }
-      - text: { label: "IFAC passphrase", key: "secrets.auto.ifac_netkey", secret: true }
-      - section: "Status"
+      - switch: { label: "Enable AutoInterface", key: "s.auto.enable", default: 0 }
       - info:
           rows:
             - value: { label: "State", key: "auto.state_text" }
@@ -54,3 +38,23 @@ settings:
               when_key: auto.up
             - value: { label: "Peers", key: "auto.peers" }
             - value: { label: "Packets", key: "auto.traffic" }
+      - advanced:
+          rows:
+            - text: { label: "Group", key: "s.auto.group", default: "reticulum" }
+            - caption: "Only nodes sharing this name peer with each other. Changing it forms a separate network."
+            - dropdown:
+                label: "Interface mode"
+                key: "s.auto.mode"
+                default: "access_point"
+                options:
+                  - { v: "access_point", l: "Access point" }
+                  - { v: "gateway",      l: "Gateway" }
+                  - { v: "full",         l: "Full" }
+                  - { v: "roaming",      l: "Roaming" }
+                  - { v: "boundary",     l: "Boundary" }
+            - integer: { label: "Community Radius", key: "s.auto.community_radius", min: 0, max: 7, default: 3 }
+            - caption: "Nodes within this many hops on this interface are yours: their announces are kept and answered for, and searches run on their behalf. Everyone else is still heard and reachable. 0 = uplink: on-demand only."
+            - section: "Interface access code (IFAC)"
+            - caption: "A network name + passphrase every peer on this interface must match, or traffic is dropped. Leave both blank for an open interface."
+            - text: { label: "IFAC network", key: "s.auto.ifac_netname" }
+            - text: { label: "IFAC passphrase", key: "s.auto.ifac_netkey", secret: true }

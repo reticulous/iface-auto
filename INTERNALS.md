@@ -15,7 +15,7 @@ Relative to a bare upstream AutoInterface, this straddle provides:
 - **rnsd integration.** Self-registration on `RNSD_PORT_IFACE` as interface
   `auto`, the outbound drain (rnsd → peers) and inbound forward (peers → rnsd)
   over ITS, and re-registration if the handle drops.
-- **Per-interface IFAC.** `s.auto.ifac_netname` / `secrets.auto.ifac_netkey` /
+- **Per-interface IFAC.** `s.auto.ifac_netname` / `s.auto.ifac_netkey` /
   `s.auto.ifac_size` are forwarded in the registration payload; the crypto core
   lives in rnsd / microreticulum (see [rns](../rns/INTERNALS.md)), not here.
 - **Interface mode.** `s.auto.mode` maps to the rnsd interface-mode enum

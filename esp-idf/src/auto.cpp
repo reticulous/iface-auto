@@ -101,10 +101,7 @@ static char          s_ifacNetname[32] = "";  /* IFAC network_name (s.) */
 static char          s_ifacNetkey[64]  = "";  /* IFAC passphrase (secrets.) */
 static uint8_t       s_ifacSize = 0;          /* IFAC access-code length */
 static uint8_t       s_announceCap = RNS_IFACE_ANNOUNCE_CAP_DEFAULT;  /* % bw cap for announces */
-static uint8_t       s_retainAnnounces = 1;   /* keep announces heard on the LAN */
-/* Transit policy — 0 = auto, i.e. inferred from mode exactly as before. */
-static uint8_t       s_policyManual = 0;
-static uint8_t       s_routeFor = 0;
+static uint8_t       s_communityRadius = 3;   /* serve nodes within this many hops on the LAN */
 
 static int           s_ifIndex = 0;
 static esp_netif_t*  s_llReqNetif = nullptr;   /* netif we already asked for a link-local (see tryBringUp) */
@@ -246,9 +243,7 @@ static bool registerWithRnsd(void) {
     reg.rpt = 0;
     reg.ifac_size = s_ifacSize;
     reg.announce_cap = s_announceCap;
-    reg.retain_announces = s_retainAnnounces;
-    reg.policy_manual = s_policyManual;
-    reg.route_for     = s_routeFor;
+    reg.community_radius = s_communityRadius;
     reg.point_to_point = 1;   /* switched/multicast LAN: every peer hears every
                                  other, so no hidden-node problem */
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
@@ -534,39 +529,35 @@ static void applyConfig(void) {
     if (group[0] == '\0') safeStrncpy(group, "reticulum", sizeof(group));
 
     char mode[24];
-    storageGetStr("s.auto.mode", mode, sizeof(mode), "gateway");
+    storageGetStr("s.auto.mode", mode, sizeof(mode), "access_point");
     uint8_t m;
     if      (strcmp(mode, "full")         == 0) m = RNS_IFACE_MODE_FULL;
     else if (strcmp(mode, "gateway")      == 0) m = RNS_IFACE_MODE_GATEWAY;
     else if (strcmp(mode, "access_point") == 0) m = RNS_IFACE_MODE_ACCESS_POINT;
     else if (strcmp(mode, "roaming")      == 0) m = RNS_IFACE_MODE_ROAMING;
     else if (strcmp(mode, "boundary")     == 0) m = RNS_IFACE_MODE_BOUNDARY;
-    else                                        m = RNS_IFACE_MODE_GATEWAY;
+    else                                        m = RNS_IFACE_MODE_ACCESS_POINT;
 
     char ifn[sizeof(s_ifacNetname)] = ""; storageGetStr("s.auto.ifac_netname", ifn, sizeof(ifn), "");
-    char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("secrets.auto.ifac_netkey", ifk, sizeof(ifk), "");
+    char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("s.auto.ifac_netkey", ifk, sizeof(ifk), "");
     uint8_t ifs = (uint8_t)storageGetInt("s.auto.ifac_size", 0);
     uint8_t acap = (uint8_t)storageGetInt("s.auto.announce_cap", RNS_IFACE_ANNOUNCE_CAP_DEFAULT);
-    /* On by default: the LAN peer set is bounded by the LAN, and these are
+    /* Default 3: the LAN peer set is bounded by the LAN, and these are
      * usually our own nodes. */
-    uint8_t ret = (uint8_t)storageGetInt("s.auto.retain_announces", 1);
-    uint8_t polman = (uint8_t)storageGetInt("s.auto.policy_manual", 0);
-    uint8_t rtfor  = (uint8_t)storageGetInt("s.auto.route_for", 0);
+    uint8_t radius = (uint8_t)storageGetInt("s.auto.community_radius", 3);
 
     bool groupChanged = s_group != group;
     bool changed = groupChanged || (m != s_mode)
                    || strcmp(ifn, s_ifacNetname) != 0 || strcmp(ifk, s_ifacNetkey) != 0
                    || ifs != s_ifacSize || acap != s_announceCap
-                   || ret != s_retainAnnounces;
+                   || radius != s_communityRadius;
     s_group = group;
     s_mode  = m;
     safeStrncpy(s_ifacNetname, ifn, sizeof(s_ifacNetname));
     safeStrncpy(s_ifacNetkey,  ifk, sizeof(s_ifacNetkey));
     s_ifacSize = ifs;
     s_announceCap = acap;
-    s_retainAnnounces = ret;
-    s_policyManual = polman;
-    s_routeFor = rtfor;
+    s_communityRadius = radius;
     if (groupChanged) { computeGroupAddr(); storageSet("auto.group_addr", s_groupAddrStr); }
 
     if (!s_enabled) { teardown(); publishState("down"); return; }
@@ -735,7 +726,6 @@ static void autoTaskMain(void*) {
         netRegister(NET_EV_DOWN, onNetDown);
     }
     storageSubscribeChanges("s.auto", onCfgChange);
-    storageSubscribeChanges("secrets.auto", onCfgChange);  /* IFAC passphrase */
 
   for (;;) {   /* Park, don't delete: this task lives across rns stop/start, so its
                 * ITS slot + rx queue + net-cb registration are reused, not leaked. */
