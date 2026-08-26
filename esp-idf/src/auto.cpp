@@ -116,8 +116,13 @@ static volatile int  s_discSock = -1;   /* multicast discovery (joined group) */
 static volatile int  s_uniSock  = -1;   /* unicast reverse-peering */
 static volatile int  s_dataSock = -1;   /* RNS data */
 
-static TickType_t    s_lastAnnounce = 0;
+static TickType_t    s_lastAnnounce = 0;   /* peering-token multicast, not an RNS announce */
 static TickType_t    s_lastPeerJob  = 0;
+
+/* This interface's RNS announce beat (rnsdAnnounceBeat state). Zero re-arms it,
+ * which is what a bring-up wants: the registration replay has just said who we
+ * are, so the first gap is a full interval. */
+static uint32_t      s_annNextMs = 0;
 
 static uint64_t      s_txBytes = 0, s_rxBytes = 0;
 static uint64_t      s_txPackets = 0, s_rxPackets = 0;
@@ -402,16 +407,30 @@ static void tryBringUp(void) {
 /* ─────────────── discovery ─────────────── */
 
 /* A failed sendto is otherwise a bare counter — name the destination and
- * errno in the log, rate-limited, so a broken TX path says what it is. */
+ * errno in the log, rate-limited, so a broken TX path says what it is.
+ *
+ * Two different things wear the same return value, though. lwIP answers ERR_MEM
+ * (ENOMEM) when it cannot get a pbuf right now, which is BACKPRESSURE: the WiFi
+ * transmit path is full this instant and the datagram is dropped. Nothing is
+ * wrong and nothing needs doing — a peering token is re-sent within seconds by
+ * the peer job, and RNS treats a lost datagram as it treats every other lost
+ * datagram — so it goes to dbg and leaves the warning level meaning "this send
+ * path is broken". It is still counted: a node dropping steadily is a real
+ * finding, it just isn't a per-occurrence one. */
 static void noteSendFail(const char* what, const struct in6_addr& dst) {
     s_txFail++;
+    int e = errno;
+    bool transient = (e == ENOMEM || e == ENOBUFS || e == EAGAIN || e == EWOULDBLOCK);
     static TickType_t s_lastWarn = 0;
     TickType_t now = xTaskGetTickCount();
-    if (s_lastWarn != 0 && (now - s_lastWarn) < pdMS_TO_TICKS(10000)) return;
-    s_lastWarn = now;
+    if (!transient && s_lastWarn != 0 && (now - s_lastWarn) < pdMS_TO_TICKS(10000)) return;
+    if (!transient) s_lastWarn = now;
     char dstStr[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, &dst, dstStr, sizeof(dstStr));
-    warn("%s send to %s failed: %s (errno %d)", what, dstStr, strerror(errno), errno);
+    if (transient)
+        dbg("%s send to %s dropped: %s (errno %d)", what, dstStr, strerror(e), e);
+    else
+        warn("%s send to %s failed: %s (errno %d)", what, dstStr, strerror(e), e);
 }
 
 static void sendToken(int fd, const struct in6_addr& addr, uint16_t port) {
@@ -449,6 +468,18 @@ static void handleDiscovery(const struct in6_addr& src, const uint8_t* data, siz
     p->last_heard   = xTaskGetTickCount();
     p->last_reverse = 0;                    /* reverse-announce on next job */
     info("peer up: %s (%d total)", srcStr, s_peerCount);
+
+    /* A peer that joins after we registered is invisible to us until this
+     * interface's beat comes round half an hour later, because the pinned
+     * replay fires on REGISTRATION and this interface registers once for the
+     * whole LAN. So ask for one now.
+     *
+     * It reaches every peer, not just this one: outbound here is a unicast
+     * fan-out (see drainOutbound), so the peers that already know us pay a few
+     * hundred bytes each on a 10 Mbit switched link — nothing, next to the
+     * plumbing that addressing a replay at one peer would take. rnsd's own
+     * debounce folds a scan that discovers three peers at once into one pass. */
+    rnsdIfaceAnnounceNow("auto");
 }
 
 /* Expire silent peers; reverse-announce to live ones. */
@@ -573,6 +604,15 @@ static void applyConfig(void) {
 static void onCfgChange(const char* /*key*/, const char* /*val*/) {
     s_configDirty = true;
     if (s_task) xTaskNotifyGive(s_task);
+}
+
+/* "Announce now" button. Hosted on the storage task rather than this one — the
+ * whole handler is a fire-and-forget aux to rnsd, so there is nothing here that
+ * wants the auto task, and this way the button works from onInit onwards. */
+static void onAnnounceNow(const char* key, const char* val) {
+    if (!val || atoi(val) == 0) return;   /* the edge write's leading 0 is not a press */
+    storageUnset(key);
+    rnsdIfaceAnnounceNow("auto");
 }
 
 static void onNetUp(const char*) {
@@ -750,6 +790,10 @@ static void autoTaskMain(void*) {
             if ((now - s_lastPeerJob) >= pdMS_TO_TICKS(PEER_JOB_INTERVAL_MS)) {
                 peerJob(); s_lastPeerJob = now;
             }
+            /* Say who we are on the LAN, on this interface's own schedule.
+             * Read live so an edit takes effect without a re-register. */
+            rnsdAnnounceBeat(&s_annNextMs,
+                             storageGetInt("s.auto.announce_interval", 30), "auto");
             drainOutbound();
         }
 
@@ -798,6 +842,8 @@ void AutoService::onInit() {
      * block in straddle.yaml (LCD pane gated on spangap-lcd; web kept by
      * AutoPanel.vue via web: false). */
     cliRegisterCmd("auto", cliAuto);
+
+    storageSubscribeChanges("auto.announce_now", onAnnounceNow, /*onStorageTask=*/true);
 
     /* Register with the RNS orchestrator instead of self-spawning: rnsStart()
      * calls autoStart() (spawning both the main + rx tasks, Core 0 alongside net +

@@ -31,6 +31,15 @@ settings:
       - heading: "AutoInterface"
       - caption: "Zero-configuration RNS over the local network. Peers on the same WiFi link are discovered with IPv6 link-local multicast — no addresses to configure — and RNS packets travel over UDP. Wire-compatible with desktop Reticulum's AutoInterface. Requires WiFi to be up."
       - switch: { label: "Enable AutoInterface", key: "s.auto.enable", default: 0 }
+      # How often this node says who it is is a property of the MEDIUM, so it
+      # lives on each interface and not on any application: lxmf, rnsh and rlpg
+      # keep their announce current with rnsd and never schedule anything. A
+      # peer discovered mid-run is told at once (auto.cpp), so this beat is only
+      # about the peers that were already there.
+      - section: "Announces"
+      - integer: { label: "Announce interval", unit: "min", key: "s.auto.announce_interval", min: 0, max: 1440, default: 30 }
+      - caption: "How often this node tells the LAN who it is. 0 = only when something changes, a peer appears, or you press the button."
+      - button: { label: "Announce now", do: { set: { key: "auto.announce_now", value: 1, edge: true } } }
       - info:
           rows:
             - value: { label: "State", key: "auto.state_text" }
