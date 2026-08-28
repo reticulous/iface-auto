@@ -207,8 +207,16 @@ static const char* stateWords(const char* state) {
  * is a state worth showing and is not the same as no pill at all. rnsd owns the
  * keys and both status lines read them; the letter, the colour and the count
  * are this straddle's to state. */
+/* The colour and the placement are the MEDIUM's, not this node's: the network
+ * graph draws LAN links between other nodes on a device whose own is off, and
+ * those lines are still LAN links. rnsdPillColor states them from boot; the
+ * pill comes and goes with the switch. */
+#define AUTO_PILL_COLOR "e8ecf2"
+#define AUTO_PILL_ORDER 2
+#define AUTO_PILL_TITLE "AutoInterface (LAN)"
+
 static void publishPill(void) {
-    if (s_enabled) rnsdPillSet("auto", 'A', s_peerCount, "c8ccd0", 2);
+    if (s_enabled) rnsdPillSet("auto", 'A', s_peerCount, AUTO_PILL_COLOR, AUTO_PILL_ORDER);
     else           rnsdPillClear("auto");
 }
 
@@ -908,6 +916,8 @@ void AutoService::onInit() {
     /* The settings pane + storage defaults are generated from the settings:
      * block in straddle.yaml (LCD pane gated on spangap-lcd; web kept by
      * AutoPanel.vue via web: false). */
+    rnsdPillColor("auto", AUTO_PILL_COLOR, AUTO_PILL_ORDER, AUTO_PILL_TITLE);
+
     cliRegisterCmd("auto", cliAuto);
 
     storageSubscribeChanges("auto.announce_now", onAnnounceNow, /*onStorageTask=*/true);

@@ -104,7 +104,7 @@ Telemetry (published read-only):
 | `auto.stats.tx_bytes`, `auto.stats.tx_packets`, `auto.stats.tx_fail` | outbound counters |
 | `auto.stats.rx_bytes`, `auto.stats.rx_packets`, `auto.stats.rx_drop` | inbound counters |
 | `auto.announce_now` | command sentinel, self-clearing: ask rnsd to replay every hosted destination's announce onto `auto` now — the pane's **Announce now** button |
-| `rns.pill.auto.*` | the top status line's AutoInterface pill (light grey `c8ccd0`, order 2), written through rnsd: `A` and the discovered peer count, shown while the switch is on and at 0 as readily as at 3 — "enabled and nobody on the link" is a state worth showing. See [rns/README](../rns/README.md#status-line-pills) |
+| `rns.pill.auto.*` | the top status line's AutoInterface pill (near-white grey `e8ecf2`, order 2, titled "AutoInterface (LAN)"), written through rnsd: `A` and the discovered peer count, shown while the switch is on and at 0 as readily as at 3 — "enabled and nobody on the link" is a state worth showing. See [rns/README](../rns/README.md#status-line-pills) |
 
 The settings pane (LCD) and storage defaults are generated from the `settings:`
 block in `straddle.yaml`, on both surfaces.
