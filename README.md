@@ -104,6 +104,7 @@ Telemetry (published read-only):
 | `auto.stats.tx_bytes`, `auto.stats.tx_packets`, `auto.stats.tx_fail` | outbound counters |
 | `auto.stats.rx_bytes`, `auto.stats.rx_packets`, `auto.stats.rx_drop` | inbound counters |
 | `auto.announce_now` | command sentinel, self-clearing: ask rnsd to replay every hosted destination's announce onto `auto` now — the pane's **Announce now** button |
+| `rns.pill.auto.*` | the top status line's AutoInterface pill (light grey `c8ccd0`, order 2), written through rnsd: `A` and the discovered peer count, shown while the switch is on and at 0 as readily as at 3 — "enabled and nobody on the link" is a state worth showing. See [rns/README](../rns/README.md#status-line-pills) |
 
 The settings pane (LCD) and storage defaults are generated from the `settings:`
 block in `straddle.yaml`, on both surfaces.
@@ -114,7 +115,23 @@ block in `straddle.yaml`, on both surfaces.
 auto                 # state, group, mcast + our address, peer count, tx/rx counters
 auto up | down       # set s.auto.enable
 auto peers           # discovered peers + last-heard age
+auto n[eighbors] [-v] # direct RNS peers heard over them
 ```
+
+`peers` is the LAN — which link-local addresses are talking to us. `neighbors`
+is Reticulum — which destinations are one hop away over them, from rnsd's shared
+neighbourhood table, in the format every interface prints. See
+[rns/README](../rns/README.md#the-neighbourhood--who-is-one-hop-away).
+
+The two are joined: this straddle sets `rx_origin` and prefixes every inbound
+datagram with the sender's `in6_addr` — exactly the 16 bytes rnsd's origin key
+is, so a peer needs no identifier of its own — and declares each peer with
+`RNSD_IFACE_AUX_PEER` as discovery finds it and withdraws it on timeout. That is
+what lets `auto n` group a peer's announces under **one** node rather than
+listing its destinations separately, and what puts a peer on the list under its
+address from the moment it is discovered, before it has announced anything.
+Outbound here is already a unicast fan-out, so inbound is a unicast arrival with
+a source address; the only cost is one copy per datagram on a 10 Mbit link.
 
 ## Verifying against desktop Reticulum
 

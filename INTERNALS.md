@@ -133,7 +133,8 @@ netif's link-local address (`auto.state = waiting_addr`), requesting one with
 exists (see Pitfalls), then opens the sockets, registers with rnsd, and starts
 announcing (`auto.state = up`). On WiFi
 down, group change, mode change, IFAC change, or disable it tears the sockets +
-registration down; `auto-rx` parks itself once the sockets become `-1`.
+registration down — always from the auto task's own loop (see Pitfalls);
+`auto-rx` parks itself once the sockets become `-1`.
 
 While up, the interface holds net's multicast-RX hold
 (`netMulticastRxAcquire()`, released in `teardown()`): at net's default
@@ -166,6 +167,17 @@ settings take effect; a group change recomputes the multicast address.
 - **Sockets are owned by the auto task**, opened/closed only there; `auto-rx`
   reads the `volatile` socket fds and drops them to `-1` on the next loop. Don't
   close a socket from the rx task.
+- **Net event callbacks run on the net task**, synchronously inside net's
+  `fireEvent()` — they are not deferred to the subscriber. So `onNetUp` /
+  `onNetDown` only record the edge and notify the auto task; the loop calls
+  `tryBringUp()` / `teardown()`. Everything teardown touches belongs to this
+  task, and `itsDisconnect()` acts only for a task that owns an end of the
+  connection: called from the net task it is refused, which would leave rnsd's
+  half of the `RNSD_PORT_IFACE` link registered with nobody draining it. rnsd
+  then blocks its full 100 ms `itsSend` timeout on every outbound packet and
+  logs `iface auto: ITS send dropped`, and — since Transport keys interfaces on
+  a hash of the name — the interface re-registering after WiFi returns never
+  displaces the wedged one.
 - **rnsd must be up first.** `requires: reticulous/rns` topo-orders rnsd ahead of
   this interface so `RNSD_PORT_IFACE` exists before registration.
 - **`s_rxQueue`'s control block and item storage must stay in internal RAM.**

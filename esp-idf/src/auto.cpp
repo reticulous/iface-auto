@@ -138,6 +138,9 @@ typedef struct {
 } peer_t;
 PSRAM_BSS static peer_t s_peers[MAX_PEERS];
 static int    s_peerCount = 0;
+/* One inbound datagram plus its 16-byte origin prefix, staged for the single
+ * itsSend. Drained on the auto task only. */
+PSRAM_BSS static uint8_t s_rxOrigin[sizeof(struct in6_addr) + RX_DGRAM_MAX];
 
 enum rx_kind_t : uint8_t { RX_DISC = 0, RX_DATA = 1 };
 typedef struct {
@@ -199,12 +202,23 @@ static const char* stateWords(const char* state) {
     return *state ? state : "down";
 }
 
+/* The status-bar pill: `A` and how many LAN peers are discovered. Published
+ * from the switch, at 0 as readily as at 3 — "enabled and nobody on the link"
+ * is a state worth showing and is not the same as no pill at all. rnsd owns the
+ * keys and both status lines read them; the letter, the colour and the count
+ * are this straddle's to state. */
+static void publishPill(void) {
+    if (s_enabled) rnsdPillSet("auto", 'A', s_peerCount, "c8ccd0", 2);
+    else           rnsdPillClear("auto");
+}
+
 static void publishState(const char* state) {
     storageBegin();
     storageSet("auto.state", state);
     storageSet("auto.state_text", stateWords(state));
     storageSet("auto.up", s_running ? 1 : 0);
     storageEnd();
+    publishPill();
 }
 
 static void publishStats(void) {
@@ -225,12 +239,14 @@ static void publishStats(void) {
              (unsigned)(s_txPackets & 0x7fffffff), (unsigned)(s_txFail  & 0x7fffffff));
     storageSet("auto.traffic", buf);
     storageEnd();
+    publishPill();      /* the peer count moved; the pill is that count */
 }
 
 /* ─────────────── rnsd registration ─────────────── */
 
 static void onRnsdRecv(int handle, size_t bytesAvail);
 static void onRnsdDisconnect(int ref);
+static void declarePeer(const peer_t& p, bool up);
 
 static void deregisterFromRnsd(void) {
     if (s_rnsdHandle >= 0) { itsDisconnect(s_rnsdHandle); s_rnsdHandle = -1; }
@@ -251,6 +267,12 @@ static bool registerWithRnsd(void) {
     reg.community_radius = s_communityRadius;
     reg.point_to_point = 1;   /* switched/multicast LAN: every peer hears every
                                  other, so no hidden-node problem */
+    /* Many peers under one registration, and we know which of them sent each
+     * datagram — outbound here is already a unicast fan-out, so inbound is a
+     * unicast arrival with a source address. Prefixing that address lets rnsd
+     * group a peer's announces under one node, which is the whole difference
+     * between a list of destinations and a list of neighbours. */
+    reg.rx_origin = 1;
     safeStrncpy(reg.ifac_netname, s_ifacNetname, sizeof(reg.ifac_netname));
     safeStrncpy(reg.ifac_netkey,  s_ifacNetkey,  sizeof(reg.ifac_netkey));
     s_rnsdHandle = itsConnect("rnsd", RNSD_PORT_IFACE, &reg, sizeof(reg),
@@ -258,6 +280,10 @@ static bool registerWithRnsd(void) {
     if (s_rnsdHandle < 0) { warn("rnsd register failed"); return false; }
     info("registered as iface auto (group=%s addr=%s)",
          s_group.c_str(), s_ourAddrStr);
+    /* A deregistration dropped rnsd's whole idea of this interface, peers
+     * included, so a re-registration has to say who is still here — discovery
+     * will not repeat itself for a peer we already hold. */
+    for (int i = 0; i < s_peerCount; i++) declarePeer(s_peers[i], true);
     return true;
 }
 
@@ -444,6 +470,23 @@ static void sendAnnounce(void) {
     if (s_discSock >= 0) sendToken(s_discSock, s_groupAddr, DISCOVERY_PORT);
 }
 
+/* Tell rnsd a peer is here, or has gone. The peer's address is both the origin
+ * key inbound datagrams carry and, in text, the label its row shows until an
+ * announce names it — so a peer that has joined the LAN and said nothing is a
+ * row rather than a silence, and a peer that times out stops being one. */
+static void declarePeer(const peer_t& p, bool up) {
+    rnsd_iface_peer_t m = {};
+    m.op = RNSD_IFACE_AUX_PEER;
+    m.up = up ? 1 : 0;
+    safeStrncpy(m.iface, "auto", sizeof(m.iface));
+    std::memcpy(m.key, &p.addr, sizeof(p.addr));
+    safeStrncpy(m.label, p.str, sizeof(m.label));
+    /* Short timeout, result ignored: the worst case is a row that appears on the
+     * peer's first announce instead of at discovery, or lingers until the
+     * interface next re-registers. */
+    itsSendAux("rnsd", RNSD_PORT_IFACE, &m, sizeof(m), pdMS_TO_TICKS(50));
+}
+
 static void handleDiscovery(const struct in6_addr& src, const uint8_t* data, size_t len) {
     if (len != TOKEN_LEN) return;
     if (isOurAddr(src)) return;            /* multicast echo of ourselves */
@@ -468,6 +511,7 @@ static void handleDiscovery(const struct in6_addr& src, const uint8_t* data, siz
     p->last_heard   = xTaskGetTickCount();
     p->last_reverse = 0;                    /* reverse-announce on next job */
     info("peer up: %s (%d total)", srcStr, s_peerCount);
+    declarePeer(*p, true);
 
     /* A peer that joins after we registered is invisible to us until this
      * interface's beat comes round half an hour later, because the pinned
@@ -488,6 +532,7 @@ static void peerJob(void) {
     for (int i = 0; i < s_peerCount; ) {
         if ((now - s_peers[i].last_heard) > pdMS_TO_TICKS(PEERING_TIMEOUT_MS)) {
             info("peer down: %s (timeout)", s_peers[i].str);
+            declarePeer(s_peers[i], false);
             s_peers[i] = s_peers[--s_peerCount];   /* swap-remove */
             continue;
         }
@@ -517,7 +562,14 @@ static void drainRx(void) {
                     s_rxPackets++;
                     s_rxBytes += m->len;
                     if (s_rnsdHandle >= 0) {
-                        size_t s = itsSend(s_rnsdHandle, m->data, m->len, pdMS_TO_TICKS(100));
+                        /* The sender's address ahead of the packet (rx_origin):
+                         * an in6_addr is exactly the 16 bytes rnsd's origin key
+                         * is, so the peer needs no separate identifier. One
+                         * copy per inbound datagram on a 10 Mbit link. */
+                        std::memcpy(s_rxOrigin, &m->src, sizeof(m->src));
+                        std::memcpy(s_rxOrigin + sizeof(m->src), m->data, m->len);
+                        size_t s = itsSend(s_rnsdHandle, s_rxOrigin,
+                                           sizeof(m->src) + m->len, pdMS_TO_TICKS(100));
                         if (s == 0) warn("rnsd ITS send dropped (%u B)", (unsigned)m->len);
                     }
                 }
@@ -621,11 +673,18 @@ static void onNetUp(const char*) {
     if (s_task) xTaskNotifyGive(s_task);
 }
 
+/* Net events are dispatched synchronously on the *net* task, and everything
+ * teardown() touches — the sockets, the rx queue, the rnsd ITS handle — belongs
+ * to the auto task. itsDisconnect() acts only for a task that owns an end of
+ * the connection and silently returns for anyone else, so tearing down from
+ * here would leave rnsd's half of the RNSD_PORT_IFACE link registered with
+ * nobody draining it: every rnsd send then burns its 100 ms timeout and drops.
+ * Record the edge; the task's own loop runs teardown(). */
 static void onNetDown(const char*) {
     s_netUp = false;
     s_llReqNetif = nullptr;   /* the next link cycle needs its own link-local request */
-    teardown();
     publishState("waiting_wifi");
+    if (s_task) xTaskNotifyGive(s_task);
 }
 
 /* ─────────────── rx helper task ─────────────── */
@@ -691,8 +750,13 @@ static void cliAuto(const char* args) {
         cliPrintf("%-*s AutoInterface status\n",   CLI_HELP_COL, "auto");
         cliPrintf("%-*s enable/disable\n",         CLI_HELP_COL, "auto up|down");
         cliPrintf("%-*s list discovered peers\n",  CLI_HELP_COL, "auto peers");
+        cliPrintf("%-*s direct RNS peers (-v for detail)\n", CLI_HELP_COL, "auto n[eighbors]");
         return;
     }
+    /* `peers` is the LAN: which link-local addresses are talking to us.
+     * `neighbors` is Reticulum: which destinations are one hop away over them.
+     * Different questions, so both stay. */
+    if (rnsdPeersCli(args, "auto", "AutoInterface")) return;
     if (args && strcmp(args, "up") == 0)   { storageSet("s.auto.enable", 1); cliPrintf("enabled\n");  return; }
     if (args && strcmp(args, "down") == 0) { storageSet("s.auto.enable", 0); cliPrintf("disabled\n"); return; }
     if (args && strcmp(args, "peers") == 0) {
@@ -776,6 +840,9 @@ static void autoTaskMain(void*) {
     s_configDirty = true;
     while (!s_stop) {
         if (s_configDirty) { s_configDirty = false; applyConfig(); }
+
+        /* WiFi went away (flagged by onNetDown, which cannot do this itself). */
+        if (s_running && !s_netUp) teardown();
 
         if (s_enabled && s_netUp && !s_running) tryBringUp();
 
