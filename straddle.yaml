@@ -36,7 +36,7 @@ settings:
       # and a pane offering all of it anyway reads as an interface that is doing
       # something.
       # How often this node says who it is is a property of the MEDIUM, so it
-      # lives on each interface and not on any application: lxmf, rnsh and rlpg
+      # lives on each interface and not on any application: lxmf, rnsh and lxmproxy
       # keep their announce current with rnsd and never schedule anything. A
       # peer discovered mid-run is told at once (auto.cpp), so this beat is only
       # about the peers that were already there.
