@@ -268,8 +268,6 @@ static bool registerWithRnsd(void) {
     reg.bitrate = 10 * 1000 * 1000;   /* AutoInterface BITRATE_GUESS */
     reg.mode    = s_mode;
     reg.in = reg.out = 1;
-    reg.fwd = (s_mode == RNS_IFACE_MODE_GATEWAY || s_mode == RNS_IFACE_MODE_FULL) ? 1 : 0;
-    reg.rpt = 0;
     reg.ifac_size = s_ifacSize;
     reg.announce_cap = s_announceCap;
     reg.community_radius = s_communityRadius;

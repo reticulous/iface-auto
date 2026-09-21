@@ -56,7 +56,6 @@ payload (see `rns/esp-idf/include/ports.h`) and registers:
 | bitrate | 10 Mbit/s (AutoInterface's bitrate guess) |
 | mode | from `s.auto.mode` (default `access_point`) |
 | in / out | 1 / 1 |
-| fwd | 1 when mode is `gateway` or `full`, else 0 |
 | IFAC | `ifac_netname` / `ifac_netkey` / `ifac_size`, when set |
 
 Well-known UDP ports (upstream AutoInterface values): **29716** multicast

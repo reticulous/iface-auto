@@ -19,7 +19,9 @@ Relative to a bare upstream AutoInterface, this straddle provides:
   `s.auto.ifac_size` are forwarded in the registration payload; the crypto core
   lives in rnsd / microreticulum (see [rns](../rns/INTERNALS.md)), not here.
 - **Interface mode.** `s.auto.mode` maps to the rnsd interface-mode enum
-  (`full`/`gateway`/`access_point`/`roaming`/`boundary`), driving `fwd`.
+  (`full`/`gateway`/`access_point`/`roaming`/`boundary`), which sets how long a
+  route learned here is kept and whether paths are discovered on others'
+  behalf. Forwarding is `s.rnsd.transport_enabled`, a node-level setting.
 - **Live telemetry + a CLI** — `auto.state`/`auto.up`/`auto.peers`/`auto.addr`/
   `auto.group_addr`/`auto.stats.*`, and the `auto` / `auto up|down` /
   `auto peers` commands.
@@ -90,7 +92,7 @@ The token is hashed over the *text* form of the IPv6 address, so the device's
 rnsd's point of view — this matches upstream AutoInterface and lets the path
 table treat the group as one neighbour): `mtu = 500` (mR base MTU; links stay at
 500, `LINK_MTU_DISCOVERY` off), `bitrate = 10 Mbit/s` (AutoInterface's guess),
-mode from `s.auto.mode`, `in = out = 1`, and `fwd = 1` for `gateway`/`full`. It
+mode from `s.auto.mode`, and `in = out = 1`. It
 presents a broadcast medium: one interface whose outbound packets fan out as
 unicast datagrams to all peers.
 
