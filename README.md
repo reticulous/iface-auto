@@ -81,7 +81,7 @@ Settings (`s.*`, persisted and synced to the browser):
 | `s.auto.group` | `"reticulum"` | group **name** (upstream `group_id`); selects which network to join |
 | `s.auto.mode` | `"access_point"` | interface mode: `full`, `gateway`, `access_point`, `roaming`, `boundary` |
 | `s.auto.ifac_netname` | `""` | IFAC network name (empty = open) |
-| `s.auto.ifac_size` | `0` | IFAC access-code length in bytes (rnsd clamps to 1–64 when IFAC is active) |
+| `s.auto.ifac_size` | `0` | IFAC access-code length in bytes, 1–64. `0` = 16, upstream AutoInterface's default; every peer must agree. |
 | `s.auto.announce_interval` | `30` | How often this node says who it is: rnsd replays every hosted destination's announce onto `auto` on this beat, jittered ±10 %. Minutes. `0` = never on this interface's own account — the node then says who it is only when an application changes what it advertises, when a peer arrives, or on the pane's **Announce now**. Live. See [rns/README.md](../rns/README.md), "The announce tick". |
 | `s.auto.community_radius` | `3` | Service radius: nodes within this many hops on the LAN are served — their announces kept and answered for, searches run on their behalf. `0` = uplink/endpoint: on-demand only. Default 3: the peer set is bounded by the LAN, and these are usually your own nodes. See `rns/README.md`. |
 

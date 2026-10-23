@@ -630,6 +630,7 @@ static void applyConfig(void) {
     char ifn[sizeof(s_ifacNetname)] = ""; storageGetStr("s.auto.ifac_netname", ifn, sizeof(ifn), "");
     char ifk[sizeof(s_ifacNetkey)]  = ""; storageGetStr("s.auto.ifac_netkey", ifk, sizeof(ifk), "");
     uint8_t ifs = (uint8_t)storageGetInt("s.auto.ifac_size", 0);
+    if (!ifs) ifs = RNS_IFAC_SIZE_PACKET;   /* upstream AutoInterface's default */
     uint8_t acap = (uint8_t)storageGetInt("s.auto.announce_cap", RNS_IFACE_ANNOUNCE_CAP_DEFAULT);
     /* Default 3: the LAN peer set is bounded by the LAN, and these are
      * usually our own nodes. */
